@@ -1,0 +1,14 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: Install a list of packages
+      ansible.builtin.apt:
+        state: present
+        update_cache: yes
+        pkg:
+        - ca-certificates
+        - curl
+        - gnupg-agent
+        - software-properties-common
+        - nmap

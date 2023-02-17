@@ -10,7 +10,7 @@
 ##- kubelet kube-proxy
 
 #NUM_MASTER_NODE = 
-NUM_MASTER_ETCD = 1 #In Process
+NUM_MASTER_ETCD = 2 #In Process
 NUM_MASTER_KAPI = 1 #In Process
 NUM_MASTER_KCM = 1 #In Process
 NUM_MASTER_KSC = 1 #In Process
@@ -30,23 +30,27 @@ Vagrant.configure("2") do |config|
   config.ssh.insert_key = false
 
   (1..NUM_MASTER_ETCD).each do |i|
+    config.hostmanager.enabled = true
+    config.hostmanager.manage_host = true
+    config.hostmanager.ignore_private_ip = false
+    config.hostmanager.include_offline = true
     config.vm.define "k8s-ha-etcd-#{i}" do |node|
       node.vm.provider "virtualbox" do |vb|
         vb.name = "k8s-ha-etcd-#{i}"
-        vb.memory= 1024
-        vb.cpus=1
+        vb.memory= 512
+        vb.cpus= 1
       end
       node.vm.hostname = "k8s-ha-etcd-#{i}"
       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_ETCD + i}", netmask: "255.255.255.0"
+
     end
     config.vm.provision "ansible" do |ansible|
       ansible.playbook = "ansible/k8s-etcd.yml"
+      ansible.extra_vars = {
+        node_hosts: "k8s-ha-etcd-#{i + 9}",
+        node_ip: "192.168.56.#{i + 9}",
+      }
     end
-#      config.vm.provision "shell", inline: <<-EOF
-#        sh-keygen -t ed25519 -C "vagrant" -f /home/vagrant/.ssh/id_ed25519 -P ""
-#        cat /home/vagrant/.ssh/id_ed25519.pub >> /home/vagrant/.ssh/authorized_keys
-#        EOF
-#      end
   end
 
 #   (1..NUM_MASTER_KAPI).each do |i|
@@ -98,16 +102,16 @@ Vagrant.configure("2") do |config|
 #     end
 #   end
 # 
-#   (1..NUM_LOADBALANCER).each do |i|
-#     config.vm.define "k8s-ha-lb-#{i}" do |node|
-#       node.vm.provider "virtualbox" do |vb|
-#         vb.name = "k8s-ha-lb-#{i}"
-#         vb.memory= 512
-#         vb.cpus=1
-#       end
-#       node.vm.hostname = "k8s-ha-lb-#{i}"
-#       node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START + i}", netmask: "255.255.255.0"
-#     end
-#   end
+#    (1..NUM_LOADBALANCER).each do |i|
+#      config.vm.define "k8s-ha-lb-#{i}" do |node|
+#        node.vm.provider "virtualbox" do |vb|
+#          vb.name = "k8s-ha-lb-#{i}"
+#          vb.memory= 512
+#          vb.cpus=1
+#        end
+#        node.vm.hostname = "k8s-ha-lb-#{i}"
+#        node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START + i}", netmask: "255.255.255.0"
+#      end
+#    end
 
 end

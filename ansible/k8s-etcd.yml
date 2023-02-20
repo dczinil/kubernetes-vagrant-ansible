@@ -94,12 +94,14 @@
 #         - cri-o
 #         - cri-o-runc
 #         - cri-tools
-# 
-    - name: file hosts enviroments
-      file:
-        path: /home/vagrant/hostname
-        state: touch
-    - name: echo file
-      blockinfile:
-        path: /home/vagrant/hostname
 
+    - name: copy script
+      copy: 
+        src: script/hosts.sh 
+        dest: /home/vagrant 
+        mode: 0710
+    - name: the hosts converted to variables
+      shell: /home/vagrant/hosts.sh >> /home/vagrant/.bashrc
+      args:
+        chdir: /home/vagrant
+        executable: /bin/bash

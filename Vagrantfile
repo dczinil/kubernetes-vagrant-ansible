@@ -9,19 +9,14 @@
 #Worker
 ##- kubelet kube-proxy
 
-#NUM_MASTER_NODE = 
-NUM_MASTER_ETCD = 2 #In Process
-NUM_MASTER_KAPI = 1 #In Process
-NUM_MASTER_KCM = 1 #In Process
-NUM_MASTER_KSC = 1 #In Process
+NUM_MASTER_ETCD = 1 #In Process
+NUM_MASTER_KACS = 2
 NUM_WORKER_NODE = 1
 NUM_LOADBALANCER = 1  
 
 MASTER_IP_ETCD = 10
-MASTER_IP_KAPI = 20
-MASTER_IP_KCM = 30
-MASTER_IP_KSC = 40
-NODE_IP_START = 50
+MASTER_IP_KACS = 20
+NODE_IP_START = 30
 LB_IP_START = 60
 IP_NW = "192.168.56."
 
@@ -35,14 +30,14 @@ Vagrant.configure("2") do |config|
     config.hostmanager.manage_host = true
     config.hostmanager.ignore_private_ip = false
     config.hostmanager.include_offline = true
-    config.vm.define "K8S-ETCD-#{i}" do |node|
+    config.vm.define "K8SETCD1#{i}" do |node|
       node.vm.provider "virtualbox" do |vb|
-        vb.name = "K8S-ETCD-#{i}"
+        vb.name = "K8SETCD1#{i}"
         vb.memory= 512
         vb.cpus= 1
       end
-      node.vm.hostname = "K8S-ETCD-#{i}"
-      node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_ETCD + i}" 
+      node.vm.hostname = "K8SETCD#{MASTER_IP_ETCD + i}"
+      node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_ETCD + i}"
 
     end
     config.vm.provision "ansible" do |ansible|
@@ -54,62 +49,37 @@ Vagrant.configure("2") do |config|
   end
 
 #   (0..NUM_MASTER_KAPI).each do |i|
-#     config.vm.define "K8S-KAPI-#{i}" do |node|
+#     config.vm.define "K8SKACS#{i}" do |node|
 #       node.vm.provider "virtualbox" do |vb|
-#         vb.name = "K8S-KAPI-#{i}"
+#         vb.name = "K8SKAPI2#{i}"
 #         vb.memory= 512
 #         vb.cpus=1
 #       end
-#       node.vm.hostname = "K8S-KAPI-#{i}"
-#       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_KAPI + i}", netmask: "255.255.255.0"
-#     end
-#   end
-# 
-#   (0..NUM_MASTER_KCM).each do |i|
-#     config.vm.define "K8S-KCM-#{i}" do |node|
-#       node.vm.provider "virtualbox" do |vb|
-#         vb.name = "K8S-KCM-#{i}"
-#         vb.memory= 512
-#         vb.cpus=1
-#       end
-#       node.vm.hostname = "K8S-KCM-#{i}"
-#       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_KCM + i}", netmask: "255.255.255.0"
-#     end
-#   end
-# 
-# 
-#   (0..NUM_MASTER_KSC).each do |i|
-#     config.vm.define "K8S-KSC-#{i}" do |node|
-#       node.vm.provider "virtualbox" do |vb|
-#         vb.name = "K8S-KSC-#{i}"
-#         vb.memory= 512
-#         vb.cpus=1
-#       end
-#       node.vm.hostname = "K8S-KSC-#{i}"
-#       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_KSC + i}", netmask: "255.255.255.0"
+#       node.vm.hostname = "K8SKACS#{i}"
+#       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_KACS + i}", netmask: "255.255.255.0"
 #     end
 #   end
 # 
 #   (0..NUM_WORKER_NODE).each do |i|
-#     config.vm.define "K8S-WORKER-#{i}" do |node|
+#     config.vm.define "K8SWORKER5#{i}" do |node|
 #       node.vm.provider "virtualbox" do |vb|
-#         vb.name = "K8S-WORKER-#{i}"
+#         vb.name = "K8SWORKER5#{i}"
 #         vb.memory= 512
 #         vb.cpus=1
 #       end
-#       node.vm.hostname = "K8S-WORKER-#{i}"
+#       node.vm.hostname = "K8SWORKER5#{i}"
 #       node.vm.network :private_network, ip: IP_NW + "#{NODE_IP_START + i}", netmask: "255.255.255.0"
 #     end
 #   end
 # 
 #    (0..NUM_LOADBALANCER).each do |i|
-#      config.vm.define "K8S-LB-#{i}" do |node|
+#      config.vm.define "K8SLB6#{i}" do |node|
 #        node.vm.provider "virtualbox" do |vb|
-#          vb.name = "K8S-LB-#{i}"
+#          vb.name = "K8SLB6#{i}"
 #          vb.memory= 512
 #          vb.cpus=1
 #        end
-#        node.vm.hostname = "K8S-LB-#{i}"
+#        node.vm.hostname = "K8SLB6#{i}"
 #        node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START + i}", netmask: "255.255.255.0"
 #      end
 #    end

@@ -2,98 +2,122 @@
 - hosts: all
   become: true
   tasks:
-#     - name: Install a list of packages
-#       apt:
-#         state: present
-#         update_cache: yes
-#         cache_valid_time: 86400
-#         pkg:
-#         - ca-certificates
-#         - curl
-#         - gnupg-agent
-#         - software-properties-common
-# 
-#     - name: Create file crio
-#       file:
-#         path: /etc/modules-load.d/crio.conf
-#         state: touch
-# 
-#     - name:
-#       blockinfile:
-#         path: /etc/modules-load.d/crio.conf
-#         block: |
-#           overlay
-#           br_netfilter
-# 
-#     - name: Enable sysctl params
-#       file:
-#         path: /etc/sysctl.d/99-kubernetes-cri.conf
-#         state: touch
-# 
-#     - name: add configuration
-#       blockinfile: 
-#         path: /etc/sysctl.d/99-kubernetes-cri.conf
-#         block: |
-#           net.bridge.bridge-nf-call-iptables = 1
-#           net.ipv4.ip_forward = 1
-#           net.bridge.bridge-nf-call-ip6tables = 1
-# 
-#     - name: enable overlayFS & VxLan
-#       shell: |
-#         sudo modprobe overlay
-#         sudo modprobe br_netfilter
-#     - name: Reload parameters
-#       command: sudo sysctl --system
-# 
-#     - name: Remove swapfile from /etc/fstab
-#       mount:
-#         name: "{{ item }}"
-#         fstype: swap
-#         state: absent
-#       with_items:
-#         - swap
-#         - none
-#     - name: Disable swap
-#       command: swapoff -a
-#       when: ansible_swaptotal_mb > 0
-# 
-#     - name: install Golang upstream
-#       unarchive:
-#         src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
-#         dest: /usr/local/
-#         remote_src: True
-#     - name: creates directory
-#       file:
-#         path: /home/vagrant/go
-#         state: directory
-#     - name: Set custom Golang path 
-#       blockinfile: 
-#         path: /root/.bashrc
-#         block: |
-#           export GOPATH=/home/vagrant/go
-#           export GOBIN=$GOPATH/bin
-#           export GOROOT=/usr/local/go
-#           export PATH=$PATH:$GOBIN:$GOROOT/bin
-#     - name: link golang
-#       file: src=/usr/local/go/bin/go dest=/bin/go state=link
-# 
-#     - name: enable cri-repo
-#       environment:
-#           OS: xUbuntu_20.04
-#           VERSION: 1.24
-#       shell: |
-#         echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /" > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
-#         echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /" > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$VERSION.list
-#         curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:$VERSION/$OS/Release.key | apt-key add -
-#         curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | apt-key add -
-#     - name: Install cri-o cri-o-runc cri-tools
-#       apt:
-#         state: present
-#         update_cache: yes
-#         pkg:
-#         - cri-o
-#         - cri-o-runc
-#         - cri-tools
+    - name: Install a list of packages
+      apt:
+        state: present
+        update_cache: yes
+        cache_valid_time: 86400
+        pkg:
+        - ca-certificates
+        - curl
+        - gnupg-agent
+        - software-properties-common
+        - apt-transport-https
+    - name: Directory
+      file:
+        path: /home/vagrant/k8s
+        state: directory
+        mode: 0755
+    - name: Cert
+      file:
+        path: /home/vagrant/k8s/cert
+        state: directory
+        mode: 0755
+
+    - name: add_key_apt
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+    - name: add_repo_k8s
+      apt_repository:
+        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+        filename: k8s.list
+    - name: add_install_k8s
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - kubectl
+
+    - name: Create file crio
+      file:
+        path: /etc/modules-load.d/crio.conf
+        state: touch
+    - name:
+      blockinfile:
+        path: /etc/modules-load.d/crio.conf
+        block: |
+          overlay
+          br_netfilter
+    - name: Enable sysctl params
+      file:
+        path: /etc/sysctl.d/99-kubernetes-cri.conf
+        state: touch
+    - name: add configuration
+      blockinfile: 
+        path: /etc/sysctl.d/99-kubernetes-cri.conf
+        block: |
+          net.bridge.bridge-nf-call-iptables = 1
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+    - name: enable overlayFS & VxLan
+      shell: |
+        sudo modprobe overlay
+        sudo modprobe br_netfilter
+    - name: Reload parameters
+      command: sudo sysctl --system
+    - name: Remove swapfile from /etc/fstab
+      mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      with_items:
+        - swap
+        - none
+    - name: Disable swap
+      command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: install Golang upstream
+      unarchive:
+        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
+        dest: /usr/local/
+        remote_src: True
+    - name: creates directory
+      file:
+        path: /home/vagrant/go
+        state: directory
+    - name: Set custom Golang path 
+      blockinfile: 
+        path: /root/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: link golang
+      file: src=/usr/local/go/bin/go dest=/bin/go state=link
+
+    - name: enable cri-repo
+      environment:
+          OS: xUbuntu_20.04
+          VERSION: 1.24
+      shell: |
+        echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /" > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+        echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /" > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$VERSION.list
+        curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:$VERSION/$OS/Release.key | apt-key add -
+        curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | apt-key add -
+    - name: Install cri-o cri-o-runc cri-tools
+      apt:
+        state: present
+        update_cache: yes
+        pkg:
+        - cri-o
+        - cri-o-runc
+        - cri-tools
 
     - name: copy script
       copy: 
@@ -105,3 +129,63 @@
       args:
         chdir: /home/vagrant
         executable: /bin/bash
+      shell: |
+        source /home/vagrant/.bashrc
+        echo API_SERVICE=$(echo $SERVICE_CIDR | awk 'BEGIN {FS="."} ; { printf("%s.%s.%s.1", $1, $2, $3) }')
+    - name: CA TLS
+      shell: |
+        #Create a CA certificate, then generate a Certificate Signing Request and use it to create a private key
+        openssl genrsa -out ca.key 2048
+        sudo sed -i '0,/RANDFILE/{s/RANDFILE/\#&/}' /etc/ssl/openssl.cnf
+        openssl req -new -key ca.key -subj "/CN=KUBERNETES-CA/O=Kubernetes" -out ca.csr
+        openssl x509 -req -in ca.csr -signkey ca.key -CAcreateserial  -out ca.crt -days 1000
+        #Generate the admin client certificate and private key
+        openssl genrsa -out admin.key 2048
+        openssl req -new -key admin.key -subj "/CN=admin/O=system:masters" -out admin.csr
+        openssl x509 -req -in admin.csr -CA ca.crt -CAkey ca.key -CAcreateserial  -out admin.crt -days 1000
+        #Generate the kube-controller-manager client certificate and private key
+        openssl genrsa -out kube-controller-manager.key 2048
+        openssl req -new -key kube-controller-manager.key -subj "/CN=system:kube-controller-manager/O=system:kube-controller-manager" -out kube-controller-manager.csr
+        openssl x509 -req -in kube-controller-manager.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out kube-controller-manager.crt -days 1000
+        #Generate the kube-proxy client certificate and private key
+        openssl genrsa -out kube-proxy.key 2048
+        openssl req -new -key kube-proxy.key -subj "/CN=system:kube-proxy/O=system:node-proxier" -out kube-proxy.csr
+        openssl x509 -req -in kube-proxy.csr -CA ca.crt -CAkey ca.key -CAcreateserial  -out kube-proxy.crt -days 1000
+        #Generate the kube-scheduler client certificate and private key
+        openssl genrsa -out kube-scheduler.key 2048
+        openssl req -new -key kube-scheduler.key -subj "/CN=system:kube-scheduler/O=system:kube-scheduler" -out kube-scheduler.csr
+        openssl x509 -req -in kube-scheduler.csr -CA ca.crt -CAkey ca.key -CAcreateserial  -out kube-scheduler.crt -days 1000
+    - name:
+      shell: |
+        cat > openssl.cnf <<EOF
+        [req]
+        req_extensions = v3_req
+        distinguished_name = req_distinguished_name
+        [req_distinguished_name]
+        [v3_req]
+        basicConstraints = critical, CA:FALSE
+        keyUsage = critical, nonRepudiation, digitalSignature, keyEncipherment
+        extendedKeyUsage = serverAuth
+        subjectAltName = @alt_names
+        [alt_names]
+        DNS.1 = kubernetes
+        DNS.2 = kubernetes.default
+        DNS.3 = kubernetes.default.svc
+        DNS.4 = kubernetes.default.svc.cluster
+        DNS.5 = kubernetes.default.svc.cluster.local
+        IP.1 = ${API_SERVICE}
+        IP.2 = ${K8SETCD10}
+        IP.3 = ${K8SKAPI20}
+        IP.4 = ${K8SKCM30} 
+        IP.5 = ${K8SKSC40} 
+        IP.6 = ${K8SWORKER50}
+        IP.7 = ${K8SLB60}
+        IP.6 = 127.0.0.1
+        EOF
+        
+        
+        
+        
+        
+
+

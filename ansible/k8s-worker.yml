@@ -1,0 +1,195 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: copy script
+      copy:
+        src: script/hosts.sh
+        dest: /home/vagrant
+        mode: 0710
+    - name: the hosts converted to variables
+      shell: /home/vagrant/hosts.sh >> /home/vagrant/.bashrc
+      args:
+        chdir: /home/vagrant
+        executable: /bin/bash
+      shell: |
+        source /home/vagrant/.bashrc
+
+    - name: Directory
+      file:
+        path: "{{ item }}"
+        state: directory
+        recurse: true
+        mode: 0755
+      with_items:
+        - /etc/k8s/cert
+        - /etc/k8s/config
+        - /var/lib/k8s
+        - /var/lib/kubelet
+        - /var/lib/kube-proxy
+        - /van/run/kubernetes
+        - /home/vagrant/go
+        - /opt/cni/bin
+        - /etc/cni/net.d
+    - name: Make direcories
+      file:
+        path: "{{ item }}"
+        state: touch
+      with_items:
+        - /etc/modules-load.d/.conf
+        - /etc/sysctl.d/.conf
+        - /etc/systemd/system/crio.service
+    - name: enable cri-repo
+      environment:
+        OS: xUbuntu_20.04 
+        VERSION: 1.26
+      shell: |
+        echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /" > /etc/apt/sources.list.d/cri-o:$OS.list
+        echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /" > /etc/apt/sources.list.d/cri-o:$VERSION.list
+        curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/Release.key | apt-key add -
+        curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o/$OS/Release.key | apt-key add -
+    - name: Install a list of packages
+      apt:
+        state: present
+        update_cache: yes
+        cache_valid_time: 86400
+        pkg:
+        - ca-certificates
+        - curl
+        - wget
+        - gnupg-agent
+        - software-properties-common
+        - apt-transport-https
+        - socat
+        - conntrack
+        - ipset
+        - cri-o
+        - cri-o-runc
+        - cri-tools
+    - name: install cni
+      unarchive:
+        src: https://github.com/containernetworking/plugins/releases/download/v1.2.0/cni-plugins-linux-amd64-v1.2.0.tgz
+        dest: /opt/cni/bin
+        remote_src: yes
+    - name: install kubectl kube-proxy kubelet
+      get_url:
+        url: "https://storage.googleapis.com/kubernetes-release/release/v1.26.0/bin/linux/amd64/{{ item }}"
+        dest: /usr/local/bin/
+        mode: 0750
+      with_items:
+        - kubelet
+        - kube-proxy
+        - kubectl
+
+    - name: Remove swapfile from /etc/fstab
+      mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      with_items:
+        - swap
+        - none
+    - name: Disable swap
+      command: swapoff -a
+
+    - name: Forwarding overlay VxLan
+      blockinfile: 
+        path: /etc/modules-load.d/.conf
+        block: |
+          overlay
+          br_netfilter
+          [registries.search]
+          registries = ['docker.io', 'registry.fedoraproject.org', 'registry.access.redhat.com']
+    - name: enable overlayFS & VxLan
+      shell: |
+        sudo modprobe overlay
+        sudo modprobe br_netfilter
+
+    - name: add configuration
+      blockinfile: 
+        path: /etc/sysctl.d/.conf
+        block: |
+          net.bridge.bridge-nf-call-iptables = 1
+          net.ipv4.ip_forward = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+    - name: Reload parameters
+      command: sudo sysctl --system
+
+    - name: install Golang upstream
+      unarchive:
+        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
+        dest: /usr/local/
+        remote_src: True
+    - name: Set custom Golang path 
+      blockinfile: 
+        path: /root/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: link golang
+      file: src=/usr/local/go/bin/go dest=/bin/go state=link
+
+    - name: Config CNI bridge
+      shell: |
+        cat << EOF | sudo tee /etc/cni/net.d/100-crio-bridge.conflist
+        {
+          "cniVersion": "1.0.0",
+          "name": "bridge",
+          "type": "bridge",
+          "bridge": "cnio0",
+          "isGateway": true,
+          "ipMasq": true,
+          "ipam": {
+              "type": "host-local",
+              "ranges": [
+                [{"subnet": "10.244.0.0/16"}]
+              ],
+              "routes": [{"dst": "0.0.0.0/0"}]
+          }
+        }
+        EOF
+    - name: config CNI loopback
+      shell: |
+        cat << EOF | sudo tee /etc/cni/net.d/200-loopback.conflist
+        {
+          "cniVersion": "1.0.0",
+          "name": "lo",
+          "type": "loopback"
+        }
+        EOF
+#    - name: add configuration
+#      shell: |
+#        cat << EOF | sudo tee /etc/systemd/system/crio.service
+#        [Unit]
+#        Description=Container Runtime Interface for OCI (CRI-O)
+#        Documentation=https://github.com/cri-o/cri-o
+#        Wants=network-online.target
+#        Before=kubelet.service
+#        After=network-online.target
+#        
+#        [Service]
+#        Type=notify
+#        EnvironmentFile=-/etc/sysconfig/crio
+#        Environment=GOTRACEBACK=crash
+#        ExecStart=/usr/local/bin/crio \
+#                  $CRIO_CONFIG_OPTIONS \
+#                  $CRIO_RUNTIME_OPTIONS \
+#                  $CRIO_STORAGE_OPTIONS \
+#                  $CRIO_NETWORK_OPTIONS \
+#                  $CRIO_METRICS_OPTIONS
+#        ExecReload=/bin/kill -s HUP $MAINPID
+#        TasksMax=infinity
+#        LimitNOFILE=1048576
+#        LimitNPROC=1048576
+#        LimitCORE=infinity
+#        OOMScoreAdjust=-999
+#        TimeoutStartSec=0
+#        Restart=on-failure
+#        RestartSec=10
+#        
+#        [Install]
+#        WantedBy=multi-user.target
+#        Alias=cri-o.service
+#        EOF

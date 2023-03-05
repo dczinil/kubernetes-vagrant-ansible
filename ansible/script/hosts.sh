@@ -33,6 +33,8 @@ do
 done
 
 echo export SERVICE_CIDR="10.96.0.0/24"
-echo export API_SERVICE="$(echo $SERVICE_CIDR | awk 'BEGIN {FS="."} ; { printf("%s.%s.%s.1", $1, $2, $3) }')"
+echo export POD_CIDR="10.244.0.0/16"
+echo export API_SERVICE="10.244.0.1"
+echo export CLUSTERDNS="10.244.0.10"
 echo "#-***-#_#-***-#"
 exit 0

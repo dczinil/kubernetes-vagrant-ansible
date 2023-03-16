@@ -11,7 +11,7 @@
 
 NUM_MASTER_ETCD = 1 #In Process
 NUM_MASTER_KACS = 2
-NUM_WORKER_NODE = 1
+NUM_WORKER_NODE = 3 
 NUM_LOADBALANCER = 1  
 
 MASTER_IP_ETCD = 10
@@ -79,6 +79,10 @@ Vagrant.configure("2") do |config|
     config.vm.provision "ansible" do |ansible|
       ansible.playbook= "ansible/k8s-worker.yml"
       ansible.extra_vars = {
+        POD_CIDR: '10.244.0.0/16',
+        API_SERVICE: '10.244.0.1',
+        CLUSTERDNS: '10.244.0.10',
+        NODE: NUM_WORKER_NODE
       }
       ansible.verbose= "v"
     end

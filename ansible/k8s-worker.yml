@@ -1,44 +1,100 @@
 ---
 - hosts: all
   become: true
+  vars:
+    - csrjson: -csr.json
+    - keypem: -key.pem
+    - pem: .pem
+    - csr: .csr
   tasks:
-    - name: copy script
+    - name: copy script hosts
       copy:
-        src: script/hosts.sh
+        src: script/hosts.sh 
         dest: /home/vagrant
-        mode: 0710
+        owner: vagrant
+        group: vagrant
+        mode: '0770'
+
     - name: the hosts converted to variables
-      shell: /home/vagrant/hosts.sh >> /home/vagrant/.bashrc
+      shell: |
+        cat << EOF >> /home/vagrant/.bashrc
+        if [ -e /home/vagrant/hosts.sh ]; then
+            source /home/vagrant/hosts.sh
+        fi
+        EOF
       args:
         chdir: /home/vagrant
         executable: /bin/bash
-      shell: |
-        source /home/vagrant/.bashrc
+    - name: source .bashrc
+      shell: source /home/vagrant/.bashrc
+      args:
+        chdir: /home/vagrant
+        executable: /bin/bash
+
+    - name: install Golang upstream
+      unarchive:
+        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
+        dest: /usr/local/
+        remote_src: True
+    - name: Set custom Golang path root
+      blockinfile: 
+        path: /root/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: Set Custom Golang path User
+      blockinfile: 
+        path: /home/vagrant/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: link golang
+      file: src=/usr/local/go/bin/go dest=/bin/go state=link
 
     - name: Directory
       file:
         path: "{{ item }}"
         state: directory
         recurse: true
-        mode: 0755
+        owner: vagrant
+        group: root
+        mode: 0770
       with_items:
+        - /home/vagrant/script
         - /etc/k8s/cert
         - /etc/k8s/config
         - /var/lib/k8s
-        - /var/lib/kubelet
+        - /var/lib/kubelet/kubeconfig
         - /var/lib/kube-proxy
         - /van/run/kubernetes
         - /home/vagrant/go
         - /opt/cni/bin
         - /etc/cni/net.d
+        - /etc/crio
+
+    - name: Var Hostname
+      command: uname -n
+      register: result
     - name: Make direcories
       file:
         path: "{{ item }}"
         state: touch
       with_items:
-        - /etc/modules-load.d/.conf
-        - /etc/sysctl.d/.conf
+        - /etc/systemd/system/kubelet.service
+        - /var/lib/kube-proxy/kube-proxy-config.yaml
+        - /etc/systemd/system/kube-proxy.service
+        - /var/lib/kubelet/kubelet-config.yaml
+        - /etc/modules-load.d/crio.conf
+        - /etc/sysctl.d/cri.conf
+        - /var/lib/kube-proxy/kubeconfig
+        - "/var/lib/kubelet/kubeconfig/{{ result.stdout  }}.kubeconfig"
         - /etc/systemd/system/crio.service
+        - /home/vagrant/script/mv_cert.sh
+
     - name: enable cri-repo
       environment:
         OS: xUbuntu_20.04 
@@ -48,6 +104,7 @@
         echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /" > /etc/apt/sources.list.d/cri-o:$VERSION.list
         curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/Release.key | apt-key add -
         curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o/$OS/Release.key | apt-key add -
+
     - name: Install a list of packages
       apt:
         state: present
@@ -66,6 +123,8 @@
         - cri-o
         - cri-o-runc
         - cri-tools
+        - golang-cfssl
+
     - name: install cni
       unarchive:
         src: https://github.com/containernetworking/plugins/releases/download/v1.2.0/cni-plugins-linux-amd64-v1.2.0.tgz
@@ -81,6 +140,34 @@
         - kube-proxy
         - kubectl
 
+    - name: Var Hostname
+      command: uname -n
+      register: result
+    - name: copy encryption
+      copy:
+        src: script/cert/
+        dest: "{{ item }}"
+        owner: vagrant
+        group: vagrant
+        mode: 0750
+      with_items:
+        - '/var/lib/kubelet/{{ result.stdout }}-key.pem'
+        - '/var/lib/kubelet/{{ result.stdout }}.pem'
+        - '/var/lib/kubelet/{{ result.stdout }}-csr.json'
+        - '/var/lib/kubelet/{{ result.stdout }}.csr'
+        - /var/lib/kubelet/ca.pem
+#    - name: Var Hostname
+#      command: uname -n
+#      register: result
+#    - name: copy encryption
+#      copy:
+#        src: /etc/k8s/cert/
+#        dest: "{{ item }}" 
+#      with_items:
+#        - '/var/lib/kubelet/{{ result.stdout }}-key.pem'
+#        - '/var/lib/kubelet/{{ result.stdout }}.pem'
+#        - /var/lib/kubelet/ca.pem
+
     - name: Remove swapfile from /etc/fstab
       mount:
         name: "{{ item }}"
@@ -91,23 +178,19 @@
         - none
     - name: Disable swap
       command: swapoff -a
-
     - name: Forwarding overlay VxLan
       blockinfile: 
-        path: /etc/modules-load.d/.conf
+        path: /etc/modules-load.d/crio.conf
         block: |
           overlay
           br_netfilter
-          [registries.search]
-          registries = ['docker.io', 'registry.fedoraproject.org', 'registry.access.redhat.com']
     - name: enable overlayFS & VxLan
       shell: |
         sudo modprobe overlay
         sudo modprobe br_netfilter
-
     - name: add configuration
       blockinfile: 
-        path: /etc/sysctl.d/.conf
+        path: /etc/sysctl.d/cri.conf
         block: |
           net.bridge.bridge-nf-call-iptables = 1
           net.ipv4.ip_forward = 1
@@ -115,81 +198,139 @@
     - name: Reload parameters
       command: sudo sysctl --system
 
-    - name: install Golang upstream
-      unarchive:
-        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
-        dest: /usr/local/
-        remote_src: True
-    - name: Set custom Golang path 
-      blockinfile: 
-        path: /root/.bashrc
-        block: |
-          export GOPATH=/home/vagrant/go
-          export GOBIN=$GOPATH/bin
-          export GOROOT=/usr/local/go
-          export PATH=$PATH:$GOBIN:$GOROOT/bin
-    - name: link golang
-      file: src=/usr/local/go/bin/go dest=/bin/go state=link
-
-    - name: Config CNI bridge
+    - name: 10-bridge.conflist
       shell: |
-        cat << EOF | sudo tee /etc/cni/net.d/100-crio-bridge.conflist
+        cat <EOF | sudo tee /etc/cni/net.d/10-brindge.conflist
         {
           "cniVersion": "1.0.0",
-          "name": "bridge",
-          "type": "bridge",
-          "bridge": "cnio0",
-          "isGateway": true,
-          "ipMasq": true,
-          "ipam": {
-              "type": "host-local",
-              "ranges": [
-                [{"subnet": "10.244.0.0/16"}]
-              ],
-              "routes": [{"dst": "0.0.0.0/0"}]
-          }
+          "name": "crio",
+          "plugins": [
+            {
+              "type": "bridge",
+              "bridge": "cni0",
+              "isGateway": true,
+              "ipMasq": true,
+              "hairpinMode": true,
+              "ipam": {
+                "type": "host-local",
+                "routes": [
+                    { "dst": "0.0.0.0/0" }
+                ],
+                "ranges": [
+                    [{ "subnet": "{{ POD_CIDR }}"]
+                ]
+              }
+            }
+          ]
         }
         EOF
-    - name: config CNI loopback
+        chmod ug+x /etc/cni/net.d/10-brindge.conflist
+
+    - name: config looback
       shell: |
-        cat << EOF | sudo tee /etc/cni/net.d/200-loopback.conflist
+        cat <EOF | sudo tee /etc/cni/net.d/99-looback.conflist
         {
           "cniVersion": "1.0.0",
           "name": "lo",
-          "type": "loopback"
+          "plugins":[
+            {
+              "type": "loopback"
+            }
+          ]
         }
         EOF
-#    - name: add configuration
-#      shell: |
-#        cat << EOF | sudo tee /etc/systemd/system/crio.service
-#        [Unit]
-#        Description=Container Runtime Interface for OCI (CRI-O)
-#        Documentation=https://github.com/cri-o/cri-o
-#        Wants=network-online.target
-#        Before=kubelet.service
-#        After=network-online.target
-#        
-#        [Service]
-#        Type=notify
-#        EnvironmentFile=-/etc/sysconfig/crio
-#        Environment=GOTRACEBACK=crash
-#        ExecStart=/usr/local/bin/crio \
-#                  $CRIO_CONFIG_OPTIONS \
-#                  $CRIO_RUNTIME_OPTIONS \
-#                  $CRIO_STORAGE_OPTIONS \
-#                  $CRIO_NETWORK_OPTIONS \
-#                  $CRIO_METRICS_OPTIONS
-#        ExecReload=/bin/kill -s HUP $MAINPID
-#        TasksMax=infinity
-#        LimitNOFILE=1048576
-#        LimitNPROC=1048576
-#        LimitCORE=infinity
-#        OOMScoreAdjust=-999
-#        TimeoutStartSec=0
-#        Restart=on-failure
-#        RestartSec=10
-#        
-#        [Install]
-#        WantedBy=multi-user.target
-#        Alias=cri-o.service
-#        EOF
+        chmod ug+x /etc/cni/net.d/99-looback.conflist
+
+    - name: tranfer crio config
+      synchronize:
+        src: ./fileconf/crio.conf
+        dest: /etc/crio/crio.conf
+
+    - name: Var Hostname
+      command: uname -n
+      register: result
+    - name: Create the kuelet-config.yaml
+      blockinfile:
+        path: /var/lib/kubelet/kubelet-config.yaml
+        block: |
+          kind: KubeletConfiguration
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          authentication:
+            anonymous:
+              enabled: false
+            webhook:
+              enabled: true
+            x509:
+              clientCAFile: "/var/lib/k8s/ca.pem"
+          authorization:
+            mode: Webhook
+          clusterDomain: "kyber.local"
+          clusterDNS:
+            - "{{ CLUSTERDNS }}"
+          podCIDR: "{{ POD_CIDR }}"
+          resolvConf: "/run/systemd/resolve/resolv.conf"
+          runtimeRequestTimeout: "15m"
+          tlsCertFile: "/var/lib/kubelet/{{ result.stdout }}.pem"
+          tlsPrivateKeyFile: "/var/lib/kubelet/{{ result.stdout }}-key.pem"
+
+    - name: Create the kubelet.service
+      blockinfile:
+        path: /etc/systemd/system/kubelet.service
+        block: |
+          [Unit]
+          Description=Kubernetes Kubelet
+          Documentation=https://github.com/kubernetes/kubernetes
+          After=crio.service
+          Requires=crio.service
+          [Service]
+          ExecStart=/usr/local/bin/kubelet
+            --config=/var/lib/kubelet/kubelet-config.yaml
+            --container-runtime=remote
+            --container-runtime-endpoint=unix:///var/run/crio/crio.sock
+            --image-pull-progress-deadline=2m
+            --kubeconfig=/var/lib/kubelet/kubeconfig
+            --network-plugin=cni
+            --register-node=true
+            --v=2
+          Restart=on-failure
+          RestartSec=5
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Configure the K8s Proxy
+      blockinfile:
+        path: /var/lib/kube-proxy/kube-proxy-config.yaml
+        block: |
+          kind: KubeProxyConfiguration
+          apiVersion: kubeproxy.config.k8s.io/v1alpha1
+          clientConnection:
+            kubeconfig: "/var/lib/kube-proxy/kubeconfig"
+          mode: "iptables"
+          clusterCIDR: "{{ POD_CIDR }}"
+
+    - name: The kube-proxy.service 
+      blockinfile:
+        path: /etc/systemd/system/kube-proxy.service
+        block: |
+          [Unit]
+          Description=Kubernetes Kube Proxy
+          Documentation=https://github.com/kubernetes/kubernetes
+          [Service]
+          ExecStart=/usr/local/bin/kube-proxy \\
+            --config=/var/lib/kube-proxy/kube-proxy-config.yaml
+          Restart=on-failure
+          RestartSec=5
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: 
+      systemd:
+        name: "{{ item }}"
+        masked: no
+        state: started
+        enabled: yes
+      with_items:
+        - crio
+        - kubelet
+        - kube-proxy
+...

@@ -91,7 +91,6 @@
         - /etc/modules-load.d/crio.conf
         - /etc/sysctl.d/cri.conf
         - /var/lib/kube-proxy/kubeconfig
-        - "/var/lib/kubelet/kubeconfig/{{ result.stdout  }}.kubeconfig"
         - /etc/systemd/system/crio.service
         - /home/vagrant/script/mv_cert.sh
 
@@ -155,18 +154,8 @@
         - '/var/lib/kubelet/{{ result.stdout }}.pem'
         - '/var/lib/kubelet/{{ result.stdout }}-csr.json'
         - '/var/lib/kubelet/{{ result.stdout }}.csr'
+        - '/var/lib/kubelet/kubeconfig/{{ result.stdout  }}.kubeconfig'
         - /var/lib/kubelet/ca.pem
-#    - name: Var Hostname
-#      command: uname -n
-#      register: result
-#    - name: copy encryption
-#      copy:
-#        src: /etc/k8s/cert/
-#        dest: "{{ item }}" 
-#      with_items:
-#        - '/var/lib/kubelet/{{ result.stdout }}-key.pem'
-#        - '/var/lib/kubelet/{{ result.stdout }}.pem'
-#        - /var/lib/kubelet/ca.pem
 
     - name: Remove swapfile from /etc/fstab
       mount:

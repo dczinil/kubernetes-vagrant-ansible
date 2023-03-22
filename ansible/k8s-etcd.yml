@@ -2,190 +2,307 @@
 - hosts: all
   become: true
   tasks:
-    - name: Install a list of packages
-      apt:
-        state: present
-        update_cache: yes
-        cache_valid_time: 86400
-        pkg:
-        - ca-certificates
-        - curl
-        - gnupg-agent
-        - software-properties-common
-        - apt-transport-https
+    - name: copy script hosts
+      copy:
+        src: script/hosts.sh 
+        dest: /etc/profile.d/hosts.sh
+        owner: vagrant
+        group: vagrant
+        mode: '0770'
+
+    - name: the hosts converted to variables
+      shell: |
+        source /etc/profile.d/hosts.sh
+      args:
+        chdir: /etc/profile.d/
+        executable: /bin/bash
+
     - name: Directory
       file:
-        path: /home/vagrant/k8s
+        path: "{{ item }}"
         state: directory
-        mode: 0755
-    - name: Cert
-      file:
-        path: /home/vagrant/k8s/cert
-        state: directory
-        mode: 0755
-
-    - name: add_key_apt
-      apt_key:
-        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
-        state: present
-    - name: add_repo_k8s
-      apt_repository:
-        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
-        state: present
-        filename: k8s.list
-    - name: add_install_k8s
-      apt:
-        name: "{{ packages }}"
-        state: present
-        update_cache: yes
-      vars:
-        packages:
-          - kubectl
-
-    - name: Create file crio
-      file:
-        path: /etc/modules-load.d/crio.conf
-        state: touch
-    - name:
-      blockinfile:
-        path: /etc/modules-load.d/crio.conf
-        block: |
-          overlay
-          br_netfilter
-    - name: Enable sysctl params
-      file:
-        path: /etc/sysctl.d/99-kubernetes-cri.conf
-        state: touch
-    - name: add configuration
-      blockinfile: 
-        path: /etc/sysctl.d/99-kubernetes-cri.conf
-        block: |
-          net.bridge.bridge-nf-call-iptables = 1
-          net.ipv4.ip_forward = 1
-          net.bridge.bridge-nf-call-ip6tables = 1
-    - name: enable overlayFS & VxLan
-      shell: |
-        sudo modprobe overlay
-        sudo modprobe br_netfilter
-    - name: Reload parameters
-      command: sudo sysctl --system
-    - name: Remove swapfile from /etc/fstab
-      mount:
-        name: "{{ item }}"
-        fstype: swap
-        state: absent
+        recurse: true
+        owner: root
+        group: root 
+        mode: 0700
       with_items:
-        - swap
-        - none
-    - name: Disable swap
-      command: swapoff -a
-      when: ansible_swaptotal_mb > 0
+        - /etc/etcd 
+        - /var/lib/etcd
+        - /var/lib/k8s
+        - /usr/local/bin/etcd
 
-    - name: install Golang upstream
-      unarchive:
-        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
-        dest: /usr/local/
-        remote_src: True
-    - name: creates directory
+    - name: Make direcories
       file:
-        path: /home/vagrant/go
-        state: directory
-    - name: Set custom Golang path 
-      blockinfile: 
-        path: /root/.bashrc
-        block: |
-          export GOPATH=/home/vagrant/go
-          export GOBIN=$GOPATH/bin
-          export GOROOT=/usr/local/go
-          export PATH=$PATH:$GOBIN:$GOROOT/bin
-    - name: link golang
-      file: src=/usr/local/go/bin/go dest=/bin/go state=link
+        path: "{{ item }}"
+        owner: root
+        group: root 
+        mode: 0700
+        state: touch
+      with_items:
+        - /etc/systemd/system/etcd.service
+        - /etc/modules-load.d/crio.conf
+        - /etc/sysctl.d/cri.conf
+        - /home/vagrant/encryption-config.yaml
 
-    - name: enable cri-repo
-      environment:
-          OS: xUbuntu_20.04
-          VERSION: 1.24
+#    - name: encryption 
+#      shell: head -c 32 /dev/urandom | base64 
+#      register: result
+#    - name: The encryption key
+#      blockinfile:
+#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+#        owner: root 
+#        group: root
+#        mode: 0750
+#        path: /var/lib/k8s/encryption-config.yaml
+#        block: |
+#          kind: EncryptionConfig
+#          apiVersion: v1
+#          resources:
+#            - resources:
+#              - secrets
+#              providers:
+#              - aescbc:
+#                keys:
+#                - name: key1
+#                  secret: {{ result.stdout  }}
+#              - identity: {}
+#
+#    - name: install Golang upstream
+#      unarchive:
+#        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
+#        dest: /usr/local/
+#        remote_src: True
+#    - name: Set custom Golang path root
+#      blockinfile: 
+#        path: /root/.bashrc
+#        block: |
+#          export GOPATH=/home/vagrant/go
+#          export GOBIN=$GOPATH/bin
+#          export GOROOT=/usr/local/go
+#          export PATH=$PATH:$GOBIN:$GOROOT/bin
+#    - name: Set Custom Golang path User
+#      blockinfile: 
+#        path: /home/vagrant/.bashrc
+#        block: |
+#          export GOPATH=/home/vagrant/go
+#          export GOBIN=$GOPATH/bin
+#          export GOROOT=/usr/local/go
+#          export PATH=$PATH:$GOBIN:$GOROOT/bin
+#    - name: link golang
+#      file: src=/usr/local/go/bin/go dest=/bin/go state=link
+#
+#    - name: Install a list of packages
+#      apt:
+#        state: present
+#        update_cache: yes
+#        cache_valid_time: 86400
+#        pkg:
+#        - ca-certificates
+#        - curl
+#        - wget
+#        - gnupg-agent
+#        - software-properties-common
+#        - apt-transport-https
+#        - socat
+#        - conntrack
+#        - ipset
+#        - golang-cfssl
+#
+#    - name: Copy encription 
+#      command: uname -n
+#      register: result
+#    - name: copy encryption
+#      copy:
+#        src: script/cert/
+#        dest: "{{ item }}"
+#        owner: vagrant
+#        group: vagrant
+#        mode: 0750
+#      with_items:
+#        - '/etc/etcd/kubernetes-key.pem'
+#        - '/etc/etcd/kubernetes.pem'
+#        - '/etc/etcd/ca.pem'
+#
+#    - name: Remove swapfile from /etc/fstab
+#      mount:
+#        name: "{{ item }}"
+#        fstype: swap
+#        state: absent
+#      with_items:
+#        - swap
+#        - none
+#    - name: Disable swap
+#      command: swapoff -a
+#    - name: Forwarding overlay VxLan
+#      blockinfile: 
+#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+#        owner: root 
+#        group: root
+#        mode: 0700
+#        path: /etc/modules-load.d/crio.conf
+#        block: |
+#          overlay
+#          br_netfilter
+#    - name: enable overlayFS & VxLan
+#      shell: |
+#        sudo modprobe overlay
+#        sudo modprobe br_netfilter
+#    - name: add configuration
+#      blockinfile: 
+#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+#        owner: root
+#        group: root
+#        mode: 0700
+#        path: /etc/sysctl.d/cri.conf
+#        block: |
+#          net.bridge.bridge-nf-call-iptables = 1
+#          net.ipv4.ip_forward = 1
+#          net.bridge.bridge-nf-call-ip6tables = 1
+#    - name: Reload parameters
+#      command: sudo sysctl --system
+
+    - name: install etcd 
       shell: |
-        echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /" > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
-        echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /" > /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$VERSION.list
-        curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:$VERSION/$OS/Release.key | apt-key add -
-        curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | apt-key add -
-    - name: Install cri-o cri-o-runc cri-tools
-      apt:
-        state: present
-        update_cache: yes
-        pkg:
-        - cri-o
-        - cri-o-runc
-        - cri-tools
+        rm -f /usr/local/bin/etcd-v3.5.7-linux-amd64.tar.gz 
+        rm -f /usr/local/bin/etcd-v3.5.7-linux-amd64 
+        curl -L https://github.com/etcd-io/etcd/releases/download/v3.5.7/etcd-v3.5.7-linux-amd64.tar.gz -o /usr/local/bin/etcd-v3.5.7-linux-amd64.tar.gz 
+        tar xzvf /usr/local/bin/etcd-v3.5.7-linux-amd64.tar.gz -C /usr/local/bin/
+        rm -f /usr/local/bin/etcd-v3.5.7-linux-amd64.tar.gz
 
-    - name: copy script
-      copy: 
-        src: script/hosts.sh 
-        dest: /home/vagrant 
-        mode: 0710
-    - name: the hosts converted to variables
-      shell: /home/vagrant/hosts.sh >> /home/vagrant/.bashrc
-      args:
-        chdir: /home/vagrant
-        executable: /bin/bash
+    - name: path etcd etcdctl etcdutl
+      shell: |
+        /usr/local/bin/etcd-v3.5.7-linux-amd64/etcd --version
+        /usr/local/bin/etcd-v3.5.7-linux-amd64/etcdctl version
+        /usr/local/bin/etcd-v3.5.7-linux-amd64/etcdutl version
+        echo 'export PATH="$PATH:/usr/local/bin/etcd-v3.5.7-linux-amd64/etcd"' >> /home/vagrant/.bashrc
+        echo 'export PATH="$PATH:/usr/local/bin/etcd-v3.5.7-linux-amd64/etcd"' >> /root/.bashrc
+        echo 'export PATH="$PATH:/usr/local/bin/etcd-v3.5.7-linux-amd64/etcdctl"' >> /home/vagrant/.bashrc
+        echo 'export PATH="$PATH:/usr/local/bin/etcd-v3.5.7-linux-amd64/etcdctl"' >> /root/.bashrc
+        echo 'export PATH="$PATH:/usr/local/bin/etcd-v3.5.7-linux-amd64/etcdutl"' >> /home/vagrant/.bashrc
+        echo 'export PATH="$PATH:/usr/local/bin/etcd-v3.5.7-linux-amd64/etcdutl"' >> /root/.bashrc
+    - name: source path etcd etcdctl etcdutl
       shell: |
         source /home/vagrant/.bashrc
-        echo API_SERVICE=$(echo $SERVICE_CIDR | awk 'BEGIN {FS="."} ; { printf("%s.%s.%s.1", $1, $2, $3) }')
-    - name: CA TLS
-      shell: |
-        #Create a CA certificate, then generate a Certificate Signing Request and use it to create a private key
-        openssl genrsa -out ca.key 2048
-        sudo sed -i '0,/RANDFILE/{s/RANDFILE/\#&/}' /etc/ssl/openssl.cnf
-        openssl req -new -key ca.key -subj "/CN=KUBERNETES-CA/O=Kubernetes" -out ca.csr
-        openssl x509 -req -in ca.csr -signkey ca.key -CAcreateserial  -out ca.crt -days 1000
-        #Generate the admin client certificate and private key
-        openssl genrsa -out admin.key 2048
-        openssl req -new -key admin.key -subj "/CN=admin/O=system:masters" -out admin.csr
-        openssl x509 -req -in admin.csr -CA ca.crt -CAkey ca.key -CAcreateserial  -out admin.crt -days 1000
-        #Generate the kube-controller-manager client certificate and private key
-        openssl genrsa -out kube-controller-manager.key 2048
-        openssl req -new -key kube-controller-manager.key -subj "/CN=system:kube-controller-manager/O=system:kube-controller-manager" -out kube-controller-manager.csr
-        openssl x509 -req -in kube-controller-manager.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out kube-controller-manager.crt -days 1000
-        #Generate the kube-proxy client certificate and private key
-        openssl genrsa -out kube-proxy.key 2048
-        openssl req -new -key kube-proxy.key -subj "/CN=system:kube-proxy/O=system:node-proxier" -out kube-proxy.csr
-        openssl x509 -req -in kube-proxy.csr -CA ca.crt -CAkey ca.key -CAcreateserial  -out kube-proxy.crt -days 1000
-        #Generate the kube-scheduler client certificate and private key
-        openssl genrsa -out kube-scheduler.key 2048
-        openssl req -new -key kube-scheduler.key -subj "/CN=system:kube-scheduler/O=system:kube-scheduler" -out kube-scheduler.csr
-        openssl x509 -req -in kube-scheduler.csr -CA ca.crt -CAkey ca.key -CAcreateserial  -out kube-scheduler.crt -days 1000
-    - name:
-      shell: |
-        cat > openssl.cnf <<EOF
-        [req]
-        req_extensions = v3_req
-        distinguished_name = req_distinguished_name
-        [req_distinguished_name]
-        [v3_req]
-        basicConstraints = critical, CA:FALSE
-        keyUsage = critical, nonRepudiation, digitalSignature, keyEncipherment
-        extendedKeyUsage = serverAuth
-        subjectAltName = @alt_names
-        [alt_names]
-        DNS.1 = kubernetes
-        DNS.2 = kubernetes.default
-        DNS.3 = kubernetes.default.svc
-        DNS.4 = kubernetes.default.svc.cluster
-        DNS.5 = kubernetes.default.svc.cluster.local
-        IP.1 = ${API_SERVICE}
-        IP.2 = ${K8SETCD10}
-        IP.3 = ${K8SKAPI20}
-        IP.4 = ${K8SKCM30} 
-        IP.5 = ${K8SKSC40} 
-        IP.6 = ${K8SWORKER50}
-        IP.7 = ${K8SLB60}
-        IP.6 = 127.0.0.1
-        EOF
-        
-        
-        
-        
-        
+        source /root/.bashrc
+      args:
+        executable: /bin/bash
 
+    - name: config etcd etcdctl etcdutl
+      shell: |
+        /usr/local/bin/etcd-v3.5.7-linux-amd64/etcd \
+         	--data-dir '/var/lib/etcd' \
+         	--listen-client-urls 'https://192.168.56.11:2379,https://127.0.0.1:2379' \
+         	--advertise-client-urls 'https://192.168.56.11:2379' \
+         	--listen-peer-urls 'https://192.168.56.11:2380' \
+         	--initial-advertise-peer-urls 'https://192.168.56.11:2380' \
+         	--initial-cluster 'K8SETCD11=https://192.168.56.11:2380,K8SETCD12=https://192.168.56.12:2380,K8SETCD13=https://192.168.56.13:2380,K8SETCD14=https://192.168.56.14:2380,K8SETCD15=https://192.168.56.15:2380,K8SETCD16=https://192.168.56.16:2380,K8SETCD17=https://192.168.56.17:2380,K8SETCD18=https://192.168.56.18:2380' \
+         	--initial-cluster-token 'ETCD-kyber' \
+         	--initial-cluster-state 'new' \
+         	--name '$(hostname -s)' \
+         	--cert-file '/etc/etcd/kubernetes.pem' \
+         	--key-file '/etc/etcd/kubernetes-key.pem' \
+         	--peer-cert-file '/etc/etcd/kubernetes.pem' \
+         	--peer-key-file '/etc/etcd/kubernetes-key.pem' \
+         	--trusted-ca-file '/etc/etcd/ca.pem' \
+         	--peer-trusted-ca-file '/etc/etcd/ca.pem' \
+         	--peer-client-cert-auth 'true' \
+         	--client-cert-auth 'true'
+      args:
+        chdir: /usr/local/bin/etcd-v3.5.7-linux-amd64
+        executable: /usr/local/bin/etcd-v3.5.7-linux-amd64/etcd
+          
+#        repo: 'https://github.com/etcd-io/etcd.git'
+#        dest: /usr/local/bin/etcd
+#    - name: stat etcd
+#      stat: 
+#        path: /usr/local/bin/etcd-v3.4.24-linux-amd64
+#        register: etcd_stat
+#    - name: rename
+#      copy: force=false remote_src=false src=/usr/local/bin/etcd-v3.4.24-linux-amd64 dest=/usr/local/bin/etcd
 
+#    - name: The etcd.service 
+#      blockinfile:
+#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+#        owner: root
+#        group: root
+#        mode: 0700
+#        path: /etc/systemd/system/etcd.service
+#        block: |
+#          [Unit]
+#          Description=etcd key-value store
+#          Documentation=https://github.com/etcd-io/etcd
+#          After=network-online.target local-fs.target remote-fs.target time-sync.target
+#          Wants=network-online.target local-fs.target remote-fs.target time-sync.target
+#
+#          [Service]
+#          User=etcd
+#          Type=notify
+#          Environment=ETCD_DATA_DIR=/var/lib/etcd
+#          Environment=ETCD_NAME=%m
+#          ExecStart=/usr/bin/etcd
+#          Restart=always
+#          RestartSec=10s
+#          LimitNOFILE=40000
+#
+#          [Install]
+#          WantedBy=multi-user.target
+#
+#    - name: 
+#      systemd:
+#        deamon_reload: true
+#        name: etcd
+#        masked: no
+#        state: started
+#        enabled: yes
+#
+#    - name: Verification etcd
+#      shell: |
+#        sudo ETCDCTL_API=3 etcdctl member list \
+#          --endpoints=https://127.0.0.1:2379 \
+#          --cacert=/etc/etcd/ca.pem \
+#          --cert=/etc/etcd/kubernetes.pem \
+#          --key=/etc/etcd/kubernetes-key.pem
+#    - name: verification env
+#      shell: |
+#        env
+...
+
+#          [Unit]
+#          Description=etcd
+#          Documentation=https://github.com/coreos
+#          Conflicts=etcd.service
+#          Conflicts=etcd2.service
+#          
+#          [Service]
+#          Type=notify
+#          Restart=always
+#          RestartSec=5s
+#          LimitNOFILE=40000
+#          TimeoutStartSec=0
+#
+#          ExecStart=/usr/local/bin/etcd
+#            --data-dir=/var/lib/etcd
+#            --listen-client-urls=https://192.168.56.11:2379,https://127.0.0.1:2379
+#            --advertise-client-urls=https://192.168.56.11:2379
+#            --listen-peer-urls=https://192.168.56.11:2380
+#            --initial-advertise-peer-urls=https://192.168.56.11:2380
+#            --initial-cluster=K8SETCD11=https://192.168.56.11:2380,K8SETCD12=https://192.168.56.12:2380,K8SETCD13=https://192.168.56.13:2380,K8SETCD14=https://192.168.56.14:2380,K8SETCD15=https://192.168.56.15:2380,K8SETCD16=https://192.168.56.16:2380,K8SETCD17=https://192.168.56.17:2380,K8SETCD18=https://192.168.56.18:2380
+#            --initial-cluster-token=ETCD-kyber
+#            --initial-cluster-state=new
+#            --name ETCD_NAME
+#            --cert-file=/etc/etcd/kubernetes.pem
+#            --key-file=/etc/etcd/kubernetes-key.pem
+#            --peer-cert-file=/etc/etcd/kubernetes.pem
+#            --peer-key-file=/etc/etcd/kubernetes-key.pem
+#            --trusted-ca-file=/etc/etcd/ca.pem
+#            --peer-trusted-ca-file=/etc/etcd/ca.pem
+#            --peer-client-cert-auth
+#            --client-cert-auth
+#          Restart=on-failure
+#          RestartSec=5
+#          [Install]
+#          WantedBy=multi-user.target
+#    - name: etcd.service
+#      shell: |
+#        export ETCD_NAME=$(hostname -s)
+#        sudo sed -i s/ETCD_NAME/$ETCD_NAME/g /etc/systemd/system/etcd.service

@@ -336,4 +336,4 @@ kubectl config use-context default --kubeconfig=admin.kubeconfig
 #
 #
 #
-mv *.pem *.json *.csr *.kubeconfig ansible/script/cert/
+mv *.pem *.json *.csr *.kubeconfig cert/

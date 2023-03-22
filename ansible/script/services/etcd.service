@@ -1,0 +1,29 @@
+[Unit]
+Description=etcd
+Documentation=https://github.com/coreos
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/etcd \
+  --name ETCD_NAME \
+  --cert-file=/etc/etcd/kubernetes.pem \
+  --key-file=/etc/etcd/kubernetes-key.pem \
+  --peer-cert-file=/etc/etcd/kubernetes.pem \
+  --peer-key-file=/etc/etcd/kubernetes-key.pem \
+  --trusted-ca-file=/etc/etcd/ca.pem \
+  --peer-trusted-ca-file=/etc/etcd/ca.pem \
+  --peer-client-cert-auth \
+  --client-cert-auth \
+  --initial-advertise-peer-urls https://192.168.56.11:2380 \
+  --listen-peer-urls https://192.168.56.11:2380 \
+  --listen-client-urls https://192.168.56.11:2379,https://127.0.0.1:2379 \
+  --advertise-client-urls https://192.168.56.11:2379 \
+  --initial-cluster-token ETCD-kyber \
+  --initial-cluster K8SETCD11=https://192.168.56.11:2380,K8SETCD12=https://192.168.56.12:2380,K8SETCD13=https://192.168.56.13:2380,K8SETCD14=https://192.168.56.14:2380,K8SETCD15=https://192.168.56.15:2380,K8SETCD16=https://192.168.56.16:2380,K8SETCD17=https://192.168.56.17:2380,K8SETCD18=https://192.168.56.18:2380, \
+  --initial-cluster-state new \
+  --data-dir=/var/lib/etcd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -10,23 +10,14 @@
     - name: copy script hosts
       copy:
         src: script/hosts.sh 
-        dest: /home/vagrant
+        dest: /etc/profile.d/hosts.sh
         owner: vagrant
         group: vagrant
         mode: '0770'
 
     - name: the hosts converted to variables
       shell: |
-        cat << EOF >> /home/vagrant/.bashrc
-        if [ -e /home/vagrant/hosts.sh ]; then
-            source /home/vagrant/hosts.sh
-        fi
-        EOF
-      args:
-        chdir: /home/vagrant
-        executable: /bin/bash
-    - name: source .bashrc
-      shell: source /home/vagrant/.bashrc
+            source /etc/profile.d/hosts.sh
       args:
         chdir: /home/vagrant
         executable: /bin/bash
@@ -93,6 +84,8 @@
         - /var/lib/kube-proxy/kubeconfig
         - /etc/systemd/system/crio.service
         - /home/vagrant/script/mv_cert.sh
+        - /etc/cni/net.d/99-looback.conflist
+        - /etc/cni/net.d/10-bridge.conflist
 
     - name: enable cri-repo
       environment:
@@ -139,7 +132,7 @@
         - kube-proxy
         - kubectl
 
-    - name: Var Hostname
+    - name: var hostname copy encryption 
       command: uname -n
       register: result
     - name: copy encryption
@@ -155,7 +148,7 @@
         - '/var/lib/kubelet/{{ result.stdout }}-csr.json'
         - '/var/lib/kubelet/{{ result.stdout }}.csr'
         - '/var/lib/kubelet/kubeconfig/{{ result.stdout  }}.kubeconfig'
-        - /var/lib/kubelet/ca.pem
+        - '/var/lib/kubelet/ca.pem'
 
     - name: Remove swapfile from /etc/fstab
       mount:
@@ -169,6 +162,10 @@
       command: swapoff -a
     - name: Forwarding overlay VxLan
       blockinfile: 
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
         path: /etc/modules-load.d/crio.conf
         block: |
           overlay
@@ -179,6 +176,10 @@
         sudo modprobe br_netfilter
     - name: add configuration
       blockinfile: 
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
         path: /etc/sysctl.d/cri.conf
         block: |
           net.bridge.bridge-nf-call-iptables = 1
@@ -188,47 +189,53 @@
       command: sudo sysctl --system
 
     - name: 10-bridge.conflist
-      shell: |
-        cat <EOF | sudo tee /etc/cni/net.d/10-brindge.conflist
-        {
-          "cniVersion": "1.0.0",
-          "name": "crio",
-          "plugins": [
-            {
-              "type": "bridge",
-              "bridge": "cni0",
-              "isGateway": true,
-              "ipMasq": true,
-              "hairpinMode": true,
-              "ipam": {
-                "type": "host-local",
-                "routes": [
-                    { "dst": "0.0.0.0/0" }
-                ],
-                "ranges": [
-                    [{ "subnet": "{{ POD_CIDR }}"]
-                ]
+      blockinfile:
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
+        path: /etc/cni/net.d/10-bridge.conflist
+        block: |
+          {
+            "cniVersion": "1.0.0",
+            "name": "crio",
+            "plugins": [
+              {
+                "type": "bridge",
+                "bridge": "cni0",
+                "isGateway": true,
+                "ipMasq": true,
+                "hairpinMode": true,
+                "ipam": {
+                  "type": "host-local",
+                  "routes": [
+                      { "dst": "0.0.0.0/0" }
+                  ],
+                  "ranges": [
+                      [{ "subnet": "{{ POD_CIDR }}"}]
+                  ]
+                }
               }
-            }
-          ]
-        }
-        EOF
-        chmod ug+x /etc/cni/net.d/10-brindge.conflist
+            ]
+          }
 
     - name: config looback
-      shell: |
-        cat <EOF | sudo tee /etc/cni/net.d/99-looback.conflist
-        {
-          "cniVersion": "1.0.0",
-          "name": "lo",
-          "plugins":[
-            {
-              "type": "loopback"
-            }
-          ]
-        }
-        EOF
-        chmod ug+x /etc/cni/net.d/99-looback.conflist
+      blockinfile:
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
+        path: /etc/cni/net.d/99-looback.conflist
+        block: |
+          {
+            "cniVersion": "1.0.0",
+            "name": "lo",
+            "plugins":[
+              {
+                "type": "loopback"
+              }
+            ]
+          }
 
     - name: tranfer crio config
       synchronize:
@@ -240,6 +247,10 @@
       register: result
     - name: Create the kuelet-config.yaml
       blockinfile:
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
         path: /var/lib/kubelet/kubelet-config.yaml
         block: |
           kind: KubeletConfiguration
@@ -264,6 +275,10 @@
 
     - name: Create the kubelet.service
       blockinfile:
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
         path: /etc/systemd/system/kubelet.service
         block: |
           [Unit]
@@ -288,6 +303,10 @@
 
     - name: Configure the K8s Proxy
       blockinfile:
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
         path: /var/lib/kube-proxy/kube-proxy-config.yaml
         block: |
           kind: KubeProxyConfiguration
@@ -299,6 +318,10 @@
 
     - name: The kube-proxy.service 
       blockinfile:
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        owner: vegrant
+        group: vagrant
+        mode: 0750
         path: /etc/systemd/system/kube-proxy.service
         block: |
           [Unit]

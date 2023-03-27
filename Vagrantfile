@@ -46,7 +46,7 @@ Vagrant.configure("2") do |config|
 #      hostsname_node node
     end
     config.vm.provision "ansible" do |ansible|
-      ansible.playbook = "ansible/k8s-etcd.yml"
+      ansible.playbook = "ansible/k8s-etcd.yaml"
       ansible.extra_vars = {
       }
       ansible.verbose = "v"

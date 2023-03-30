@@ -1,17 +1,32 @@
-data-dir: /var/lib/etcd/{{ inventory_hostname }}.etcd
-name: {{ inventory_hostname }}
-initial-advertise-peer-urls: https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2380
-listen-peer-urls: https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2380,http://127.0.0.1:2380
-advertise-client-urls: https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2379
-listen-client-urls: https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2379,http://127.0.0.1:2379
-initial-cluster-state: new
-initial-cluster: {% for host in groups['all'] %}{{ hostvars[host]['ansible_facts']['hostname'] }}=http://{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2380{% if not loop.last %},{% endif %}{% endfor %}
-
-client-transport-security:
-  cert-file: /etc/etcd/kubernetes.pem
-  key-file: /etc/etcd/kubernetes-key.pem
-  trusted-ca-file: /etc/etcd/ca.pem
-peer-transport-security:
-  cert-file: /etc/etcd/kubernetes.pem
-  key-file: /etc/etcd/kubernetes-key.pem
-  trusted-ca-file: /etc/etcd/ca.pem
+########################
+#					             #
+#     Member flags     #
+#					             #
+########################
+ETCD_NAME='"{{ inventory_hostname }}"'
+ETCD_DATA_DIR="/var/lib/etcd/{{ inventory_hostname }}.etcd"
+ETCD_LISTEN_PEER_URLS='"https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2380"'
+ETCD_LISTEN_CLIENT_URLS='"https://0.0.0.0:2379"'
+########################
+#					             #
+#  Clustering flags    #
+#					             #
+########################
+ETCD_INITIAL_ADVERTISE_PEER_URLS='"https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2380"'
+ETCD_INITIAL_CLUSTER= {% for host in groups['all'] %}{{ hostvars[host]['ansible_facts']['hostname'] }}=http://{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2380{% if not loop.last %},{% endif %}{% endfor %}
+ETCD_INITIAL_CLUSTER_STATE="new"
+ETCD_INITIAL_CLUSTER_TOKEN="K8SETCD"
+ETCD_ADVERTISE_CLIENT_URLS='"https://{{ hostvars[inventory_hostname]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2379"'
+########################
+#			                 #
+#    Security flags    #
+#					             #
+########################
+ETCD_CERT_FILE="/etc/etcd/kubernetes.pem"
+ETCD_KEY_FILE="/etc/etcd/kubernetes-key.pem"
+ETCD_CLIENT_CERT_AUTH="True"
+ETCD_TRUSTED_CA_FILE="/etc/etcd/ca.pem"
+ETCD_PEER_CERT_FILE="/etc/etcd/kubernetes.pem"
+ETCD_PEER_KEY_FILE="/etc/etcd/kubernetes-key.pem"
+ETCD_PEER_CLIENT_CERT_AUTH="True"
+ETCD_PEER_TRUSTED_CA_FILE="/etc/etcd/ca.pem"

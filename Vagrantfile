@@ -9,7 +9,7 @@
 #Worker
 ##- kubelet kube-proxy
 #
-NUM_MASTER_ETCD = 1 #In Process
+NUM_MASTER_ETCD = 2 #In Process
 NUM_MASTER_KACS = 1
 NUM_WORKER_NODE = 1 
 NUM_LOADBALANCER = 1  
@@ -49,7 +49,7 @@ Vagrant.configure("2") do |config|
       ansible.playbook = "ansible/k8s-etcd.yaml"
       ansible.extra_vars = {
       }
-      ansible.verbose = "v"
+      ansible.verbose = ""
     end
   end
 #

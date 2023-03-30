@@ -2,52 +2,33 @@
 - hosts: all
   become: true
   tasks:
-    - name: copy script hosts
-      copy:
-        src: script/hosts.sh 
-        dest: /etc/profile.d/hosts.sh
-        owner: root 
-        group: root
-        mode: 0751
-    - name: the hosts converted to variables
-      shell: |
-        source /etc/profile.d/hosts.sh
-      args:
-        chdir: /etc/profile.d/
-        executable: /bin/bash
+    - name: "Create group"
+      group: 
+        name: etcd
+        state: present
+        system: true
+    - name: "Create user"
+      user:
+        name: etcd
+        group: etcd
+        state: present
+        password_lock: false
+        shell: "/sbin/nologin"
 
-        
     - name: Directory
       file:
         path: "{{ item }}"
         state: directory
         recurse: true
-        owner: root
-        group: root
+        owner: etcd
+        group: etcd
         mode: 0751
       with_items:
         - /var/lib/etcd
         - /var/lib/k8s
         - /etc/etcd
         - /usr/local/bin/etcd/bin
-
-    - name: "Create user group"
-      shell: |
-        sudo groupadd --system etcd
-        sudo useradd -s /sbin/nologin --system -g etcd etcd
-        sudo chown -R etcd:etcd /var/lib/etcd
         
-#    - name: Make direcories
-#      file:
-#        path: "{{ item }}"
-#        state: touch
-#        owner: etcd 
-#        group: etcd
-#        mode: 0751
-#      with_items:
-#        - /etc/systemd/system/etcd.service
-
-      
     - name: encryption
       shell: head -c 32 /dev/urandom | base64 
       register: result
@@ -113,24 +94,12 @@
         - pipexec
         - tree
 
-    - name: copy encryption ca
-      copy:
-        content: script/cert/ca.pem
-        dest: /etc/etcd/ca.pem
-        force: yes
-        remote_src: yes
-    - name: copy encryption k8s
-      copy:
-        content: script/cert/kubernetes.pem
-        dest: /etc/etcd/kubernetes.pem
-        force: yes
-        remote_src: yes
-    - name: copy encryption pem
-      copy:
-        content: script/cert/kubernetes-key.pem
-        dest: /etc/etcd/kubernetes-key.pem
-        force: yes
-        remote_src: yes
+    - name: rsync pem
+      synchronize:
+        src: script/cert/
+        dest: /etc/etcd
+    - name: owner
+      shell: chown -R etcd:etcd /etc/etcd/
 
     - name: "Download etcd.tar.gz"
       get_url:
@@ -148,15 +117,15 @@
       file:
         path: /usr/local/bin/etcd/bin/etcd 
         state: file
-        owner: root
-        group: root
+        owner: etcd
+        group: etcd
         mode: 0751
     - name: "set permission etcdctl"
       file:
         path: /usr/local/bin/etcd/bin/etcdctl 
         state: file
-        owner: root
-        group: root
+        owner: etcd
+        group: etcd
         mode: 0751
     - name: "Set ETCDCTL_API enviroment 3"
       blockinfile:
@@ -172,48 +141,23 @@
       template:
         src: fileconf/etcd.conf.yaml.j2
         dest: /etc/etcd/etcd.conf.yaml
+        owner: etcd
+        group: etcd
+        mode: 0751
     - name: "Service etcd"
       template:
         src: fileconf/etcd.service.yaml.j2
         dest: /etc/systemd/system/etcd.service
-#    - name: "Create a etcd service"
-#      blockinfile:
-#        src: 
-#        block: |
-#          [Unit]
-#          Description=etcd key-value store
-#          Documentation=https://github.com/coreos/etcd
-#          After=network.target
-#          Wants=network-online.target
-#          
-#          [Service]
-#          Environment=DAEMON_ARGS=/etc/etcd/etcd.conf.yaml
-#          Type=notify
-#          User=etcd
-#          PermissionsStartOnly=true
-#          ExecStart=/usr/local/bin/etcd/bin/etcd $DAEMON_ARGS
-#          Restart=on-abnormal
-#          LimitNOFILE=65536
-#          
-#          [Install]
-#          WantedBy=multi-user.target
-#          Alias=etcd2.service
+        owner: etcd
+        group: etcd
+        mode: 0751
 
     - name: "Start enable etcd"
       shell: |
-        sudo systemctl start etcd
-        sudo systemctl enable etcd
-    - name: Testing
-      shell: |
-        etcdctl put foo bar
-        etcdctl get foo
+        systemctl start etcd
+        systemctl enable etcd
+#    - name: Testing
+#      shell: |
+#        etcdctl put foo bar
+#        etcdctl get foo
 ...
-#          [Unit]
-#          Description=etcd distributed reliable key-value store
-#          After=network-online.target local-fs.target remote-fs.target
-#          Wants=network-online.target local-fs.target remote-fs.target
-#
-#          [Service]
-#          Type=notify
-#          ExecStart=/usr/local/bin/etcd/bin/etcd --config-file /etc/etcd/etcd.conf
-#          Restart=always

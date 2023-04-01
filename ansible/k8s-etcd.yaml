@@ -1,7 +1,12 @@
 ---
-- hosts: all
+- hosts: etcd 
   become: true
   tasks:
+    - name: "Retrieve hostname"
+      command: hostname
+      register: output
+    - name: "Print hostname"
+      debug: var=output.stdout_lines
     - name: "Create group"
       group: 
         name: etcd
@@ -26,7 +31,7 @@
       with_items:
         - /var/lib/etcd
         - /var/lib/k8s
-        - /etc/etcd
+        - /etc/etcd/cert
         - /usr/local/bin/etcd/bin
         
     - name: encryption
@@ -93,6 +98,7 @@
         - net-tools
         - pipexec
         - tree
+        - golang-cfssl
 
     - name: rsync pem
       synchronize:
@@ -151,7 +157,6 @@
         owner: etcd
         group: etcd
         mode: 0751
-
     - name: "Start enable etcd"
       shell: |
         systemctl start etcd
@@ -160,4 +165,7 @@
 #      shell: |
 #        etcdctl put foo bar
 #        etcdctl get foo
+- hosts: etcd 
+  become: true
+  tasks:
 ...

@@ -2,7 +2,6 @@
 #
 source ./hosts
 #--Create certificate--#
-
 cat > ca-config.json <<EOF
 {
   "signing": {
@@ -18,7 +17,6 @@ cat > ca-config.json <<EOF
   }
 }
 EOF
-
 cat > ca-csr.json <<EOF
 {
   "CN": "Kubernetes",
@@ -37,13 +35,10 @@ cat > ca-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert -initca ca-csr.json | cfssljson -bare ca
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
 cat > admin-csr.json <<EOF
 {
   "CN": "admin",
@@ -62,24 +57,20 @@ cat > admin-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
   -profile=kubernetes \
   admin-csr.json | cfssljson -bare admin
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
-
 for((i=30;i<60;i++));
 do
 cat > K8SWORKER${i}-csr.json <<EOF
 {
-  "CN": "system:node:K8SWORKER$i",
+  "CN": "system:node:K8SWORKER${i}",
   "key": {
     "algo": "rsa",
     "size": 2048
@@ -95,21 +86,17 @@ cat > K8SWORKER${i}-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
-  -hostname=K8SWORKER$i,$K8SLB61,$RANGO$i \
+  -hostname=K8SWORKER${i},${K8SLB61},${RANGO}${i} \
   -profile=kubernetes \
   K8SWORKER${i}-csr.json | cfssljson -bare K8SWORKER$i
 done
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
-
 cat > kube-controller-manager-csr.json <<EOF
 {
   "CN": "system:kube-controller-manager",
@@ -128,18 +115,15 @@ cat > kube-controller-manager-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
   -profile=kubernetes \
   kube-controller-manager-csr.json | cfssljson -bare kube-controller-manager
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
 cat > kube-proxy-csr.json <<EOF
 {
   "CN": "system:kube-proxy",
@@ -158,19 +142,15 @@ cat > kube-proxy-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
   -profile=kubernetes \
   kube-proxy-csr.json | cfssljson -bare kube-proxy
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
-
 cat > kube-scheduler-csr.json <<EOF
 {
   "CN": "system:kube-scheduler",
@@ -189,23 +169,16 @@ cat > kube-scheduler-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
   -profile=kubernetes \
   kube-scheduler-csr.json | cfssljson -bare kube-scheduler
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
-
-
-KUBE_IP=$(cat ./hosts | head -12 | tail -1)
 KUBERNETES_HOSTNAMES=kubernetes,kubernetes.default,kubernetes.default.svc,kubernetes.default.svc.kyber,kubernetes.svc.kyber.local
-
 cat > kubernetes-csr.json <<EOF
 {
   "CN": "kubernetes",
@@ -224,19 +197,16 @@ cat > kubernetes-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
   -config=ca-config.json \
-  -hostname=10.96.0.1,${KUBE_IP}$K8SLB61,127.0.0.1,$KUBERNETES_HOSTNAMES \
+  -hostname=10.96.0.1,${K8SKACS21},${K8SKACS22},${K8SKACS23},${K8SETCD11},${K8SETCD12},${K8SETCD13},$K8SLB61,127.0.0.1,$KUBERNETES_HOSTNAMES \
   -profile=kubernetes \
   kubernetes-csr.json | cfssljson -bare kubernetes
-
 ######################################################################################
 ######################################################################################
 ######################################################################################
-
 cat > service-account-csr.json <<EOF
 {
   "CN": "service-accounts",
@@ -255,7 +225,6 @@ cat > service-account-csr.json <<EOF
   ]
 }
 EOF
-
 cfssl gencert \
   -ca=ca.pem \
   -ca-key=ca-key.pem \
@@ -269,13 +238,10 @@ cfssl gencert \
 {
 for((i=30;i<60;i++));
 do
-kubectl config set-cluster k8s --certificate-authority=ca.pem --embed-certs=true --server=https:${K8SLB61} --kubeconfig=K8SWORKER$i.kubeconfig
-
-kubectl config set-credentials system:node:K8SWORKER$i --client-certificate=K8SWORKER$i.pem --client-key=K8SWORKER$i-key.pem --embed-certs=true --kubeconfig=K8SWORKER$i.kubeconfig
-
-kubectl config set-context default --cluster=k8s --user=system:node:K8SWORKER$i --kubeconfig=K8SWORKER$i.kubeconfig
-
-kubectl config use-context default --kubeconfig=K8SWORKER$i.kubeconfig
+kubectl config set-cluster k8s --certificate-authority=ca.pem --embed-certs=true --server=https:${K8SLB61} --kubeconfig=K8SWORKER${i}.kubeconfig
+kubectl config set-credentials system:node:K8SWORKER${i} --client-certificate=K8SWORKER${i}.pem --client-key=K8SWORKER${i}-key.pem --embed-certs=true --kubeconfig=K8SWORKER${i}.kubeconfig
+kubectl config set-context default --cluster=k8s --user=system:node:K8SWORKER${i} --kubeconfig=K8SWORKER${i}.kubeconfig
+kubectl config use-context default --kubeconfig=K8SWORKER${i}.kubeconfig
 done
 }
 #####################################################################################
@@ -283,11 +249,8 @@ done
 #####################################################################################
 {
 kubectl config set-cluster k8s --certificate-authority=ca.pem --embed-certs=true --server=https://${K8SLB61}:6443 --kubeconfig=kube-proxy.kubeconfig
-
 kubectl config set-credentials system:kube-proxy --client-certificate=kube-proxy.pem --client-key=kube-proxy-key.pem --embed-certs=true --kubeconfig=kube-proxy.kubeconfig
-
 kubectl config set-context default --cluster=k8s --user=system:kube-proxy --kubeconfig=kube-proxy.kubeconfig
-
 kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
 }
 #####################################################################################
@@ -295,11 +258,8 @@ kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
 #####################################################################################
 {
 kubectl config set-cluster k8s --certificate-authority=ca.pem --embed-certs=true --server=https://127.0.0.1:6443 --kubeconfig=kube-controller-manager.kubeconfig
-
 kubectl config set-credentials system:kube-controller-manager --client-certificate=kube-controller-manager.pem --client-key=kube-controller-manager-key.pem --embed-certs=true --kubeconfig=kube-controller-manager.kubeconfig
-
 kubectl config set-context default --cluster=k8s --user=system:kube-controller-manager --kubeconfig=kube-controller-manager.kubeconfig
-
 kubectl config use-context default --kubeconfig=kube-controller-manager.kubeconfig
 }
 #####################################################################################
@@ -307,11 +267,8 @@ kubectl config use-context default --kubeconfig=kube-controller-manager.kubeconf
 #####################################################################################
 {
 kubectl config set-cluster k8s --certificate-authority=ca.pem --embed-certs=true --server=https://127.0.0.1:6443 --kubeconfig=kube-scheduler.kubeconfig
-
 kubectl config set-credentials system:kube-scheduler --client-certificate=kube-scheduler.pem --client-key=kube-scheduler-key.pem --embed-certs=true --kubeconfig=kube-scheduler.kubeconfig
-
 kubectl config set-context default --cluster=k8s --user=system:kube-scheduler --kubeconfig=kube-scheduler.kubeconfig
-
 kubectl config use-context default --kubeconfig=kube-scheduler.kubeconfig
 }
 #####################################################################################
@@ -319,17 +276,13 @@ kubectl config use-context default --kubeconfig=kube-scheduler.kubeconfig
 #####################################################################################
 {
 kubectl config set-cluster k8s --certificate-authority=ca.pem --embed-certs=true --server=https://127.0.0.1:6443 --kubeconfig=admin.kubeconfig
-
 kubectl config set-credentials admin --client-certificate=admin.pem --client-key=admin-key.pem --embed-certs=true --kubeconfig=admin.kubeconfig
-
 kubectl config set-context default --cluster=k8s --user=admin --kubeconfig=admin.kubeconfig
-
 kubectl config use-context default --kubeconfig=admin.kubeconfig
 }
 #####################################################################################
 #####################################################################################
 #####################################################################################
-
 #
 #
 #

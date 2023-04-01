@@ -9,7 +9,7 @@
 #Worker
 ##- kubelet kube-proxy
 #
-NUM_MASTER_ETCD = 2 #In Process
+NUM_MASTER_ETCD = 3 #In Process
 NUM_MASTER_KACS = 1
 NUM_WORKER_NODE = 1 
 NUM_LOADBALANCER = 1  
@@ -33,6 +33,20 @@ Vagrant.configure("2") do |config|
   config.hostmanager.manage_host = true
   config.hostmanager.ignore_private_ip = false
   config.hostmanager.include_offline = true
+  config.vm.synced_folder "ansible/script/cert/","/cert"
+#  config.vm.provision "ansible" do |ansible|
+#    ansible.limit = "all"
+#    ansible.playbook = "ansible/k8s-bootstrap.yaml"
+#    ansible.groups = {
+#      "all"   =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13",
+#                  "K8SKACS21", "K8SKACS22", "K8SKACS23",
+#                  "K8SWORKER31", "K8SWORKER32", "K8SWORKER33",
+#                  "K8SLB61"],
+#      "etcd"    =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13"],
+#      "kacs"    =>  ["K8SKACS21", "K8SKACS22", "K8SKACS23"],
+#      "worker"  =>  ["K8SWORKER31", "K8SWORKER32", "K8SWORKER33"],
+#      "lb"      =>  ["K8SLB61"]
+#    }
 
   (1..NUM_MASTER_ETCD).each do |i|
     config.vm.define "K8SETCD1#{i}" do |node|
@@ -43,16 +57,26 @@ Vagrant.configure("2") do |config|
       end
       node.vm.hostname = "K8SETCD#{MASTER_IP_ETCD + i}"
       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_ETCD + i}"
-#      hostsname_node node
     end
     config.vm.provision "ansible" do |ansible|
+      ansible.limit = "etcd"
       ansible.playbook = "ansible/k8s-etcd.yaml"
+      ansible.groups = {
+        "all"     =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13",
+                        "K8SKACS21", "K8SKACS22", "K8SKACS23",
+                        "K8SWORKER31", "K8SWORKER32", "K8SWORKER33",
+                        "K8SLB61"],
+        "etcd"    =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13"],
+        "kacs"    =>  ["K8SKACS21", "K8SKACS22", "K8SKACS23"],
+        "worker"  =>  ["K8SWORKER31", "K8SWORKER32", "K8SWORKER33"],
+        "lb"      =>  ["K8SLB61"]
+      }
       ansible.extra_vars = {
       }
       ansible.verbose = ""
     end
   end
-#
+
 #  (1..NUM_MASTER_KACS).each do |i|
 #    config.vm.define "K8SKACS#{i}" do |node|
 #      node.vm.provider "virtualbox" do |vb|
@@ -71,15 +95,15 @@ Vagrant.configure("2") do |config|
 #      ansible.verbose= "v"
 #    end
 #  end
-## 
-##  (1..NUM_WORKER_NODE).each do |i|
-##    config.vm.define "K8SWORKER#{i}" do |node|
-##      node.vm.provider "virtualbox" do |vb|
-##        vb.name = "K8SWORKER#{NODE_IP_START + i}"
-##        vb.memory= 512
-##        vb.cpus=1
-##      end
-##      node.vm.hostname = "K8SWORKER#{NODE_IP_START + i}"
+# 
+#  (1..NUM_WORKER_NODE).each do |i|
+#    config.vm.define "K8SWORKER#{i}" do |node|
+#      node.vm.provider "virtualbox" do |vb|
+#        vb.name = "K8SWORKER#{NODE_IP_START + i}"
+#        vb.memory= 512
+#        vb.cpus=1
+#      end
+#      node.vm.hostname = "K8SWORKER#{NODE_IP_START + i}"
 #      node.vm.network :private_network, ip: IP_NW + "#{NODE_IP_START + i}", netmask: "255.255.255.0"
 #    end
 #    config.vm.provision "ansible" do |ansible|

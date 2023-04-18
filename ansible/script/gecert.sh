@@ -29,7 +29,7 @@ cat > ca-csr.json <<EOF
       "C": "MX",
       "L": "SLP",
       "O": "K8S",
-      "OU": "K8S",
+      "OU": "CA",
       "ST": "Thyton"
     }
   ]
@@ -218,7 +218,7 @@ cat > service-account-csr.json <<EOF
     {
       "C": "MX",
       "L": "SLP",
-      "O": "K8S",
+      "O": "Kubernetes",
       "OU": "K8S",
       "ST": "Thyton"
     }
@@ -283,10 +283,25 @@ kubectl config use-context default --kubeconfig=admin.kubeconfig
 #####################################################################################
 #####################################################################################
 #####################################################################################
+ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
+cat > encryption-config.yaml <<EOF
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: ${ENCRYPTION_KEY}
+      - identity: {}
+EOF
+#####################################################################################
+#####################################################################################
+#####################################################################################
 #
 #
 #
 #
-#
-#
-mv *.pem *.json *.csr *.kubeconfig cert/
+mv encryption-config.yaml *.pem *.json *.csr *.kubeconfig  cert/

@@ -1,11 +1,7 @@
 ---
-- hosts: all
+- hosts: worker 
   become: true
   vars:
-    - csrjson: -csr.json
-    - keypem: -key.pem
-    - pem: .pem
-    - csr: .csr
   tasks:
     - name: copy script hosts
       copy:
@@ -137,18 +133,18 @@
       register: result
     - name: copy encryption
       copy:
-        src: script/cert/
-        dest: "{{ item }}"
+        src: "{{ item }}"
+        dest: /var/lib/kubelet
         owner: vagrant
         group: vagrant
         mode: 0750
       with_items:
-        - '/var/lib/kubelet/{{ result.stdout }}-key.pem'
-        - '/var/lib/kubelet/{{ result.stdout }}.pem'
-        - '/var/lib/kubelet/{{ result.stdout }}-csr.json'
-        - '/var/lib/kubelet/{{ result.stdout }}.csr'
-        - '/var/lib/kubelet/kubeconfig/{{ result.stdout  }}.kubeconfig'
-        - '/var/lib/kubelet/ca.pem'
+        - 'script/cert/{{ result.stdout }}-key.pem'
+        - 'script/cert/{{ result.stdout }}.pem'
+        - 'script/cert/{{ result.stdout }}-csr.json'
+        - 'script/cert/{{ result.stdout }}.csr'
+        - 'script/cert/{{ result.stdout  }}.kubeconfig'
+        - 'script/cert/ca.pem'
 
     - name: Remove swapfile from /etc/fstab
       mount:

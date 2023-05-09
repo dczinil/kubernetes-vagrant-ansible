@@ -34,30 +34,6 @@
         - /etc/etcd/cert
         - /usr/local/bin/etcd/bin
         
-    - name: encryption
-      shell: head -c 32 /dev/urandom | base64 
-      register: result
-    - name: The encryption key
-      blockinfile:
-        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
-        owner: etcd 
-        group: etcd
-        mode: 0751
-        path: /var/lib/k8s/encryption-config.yaml
-        create: true
-        block: |
-          kind: EncryptionConfig
-          apiVersion: v1
-          resources:
-            - resources:
-              - secrets
-              providers:
-              - aescbc:
-                keys:
-                - name: key1
-                  secret: {{ result.stdout  }}
-              - identity: {}
-
     - name: install Golang upstream
       unarchive:
         src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
@@ -100,13 +76,21 @@
         - tree
         - golang-cfssl
 
-    - name: rsync pem
-      synchronize:
-        src: script/cert/
-        dest: /etc/etcd
-    - name: owner
-      shell: chown -R etcd:etcd /etc/etcd/
-
+    - name: copy encryption
+      copy:
+        src: "{{ item }}"
+        dest: /etc/etcd/
+      with_items:
+        - script/cert/ca.pem
+        - script/cert/ca-key.pem
+        - script/cert/kubernetes-key.pem
+        - script/cert/kubernetes.pem
+        - script/cert/encryption-config.yaml  
+    - name: encrypt
+      shell: |
+        sudo chown -R etcd:etcd /etc/etcd/*
+        sudo chmod -R 751 /etc/etcd/*
+        
     - name: "Download etcd.tar.gz"
       get_url:
         url: https://github.com/etcd-io/etcd/releases/download/v3.5.7/etcd-v3.5.7-linux-amd64.tar.gz
@@ -165,7 +149,4 @@
 #      shell: |
 #        etcdctl put foo bar
 #        etcdctl get foo
-- hosts: etcd 
-  become: true
-  tasks:
 ...

@@ -9,9 +9,9 @@
 #Worker
 ##- kubelet kube-proxy
 #
-NUM_MASTER_ETCD = 3 #In Process
-NUM_MASTER_KACS = 1
-NUM_WORKER_NODE = 1 
+NUM_MASTER_ETCD = 2
+NUM_MASTER_KACS = 2 
+NUM_WORKER_NODE = 3 
 NUM_LOADBALANCER = 1  
 
 MASTER_IP_ETCD = 10
@@ -20,33 +20,31 @@ NODE_IP_START = 30
 LB_IP_START = 60
 IP_NW = "192.168.56."
 
-def hostsname_node(node)
-  node.vm.provision "file", source: "ansible/script/hosts.sh", destination: "/home/vagrant/hosts.sh"
-  node.vm.provision "shell", inline: "mv /home/vagrant/hosts.sh /etc/profile.d/hosts.sh"
-  node.vm.provision "shell", inline: "source /etc/profile.d/hosts.sh"
-end
+ssh_key = "~/.ssh/id_rsa"
 
-Vagrant.configure("2") do |config|
+Vagrant.configure("2") do  |config|
   config.vm.box = "ubuntu/focal64"
+  config.ssh.forward_agent = true
+  config.ssh.private_key_path = ["~/.vagrant.d/insecure_private_key", ssh_key]
   config.ssh.insert_key = false
   config.hostmanager.enabled = true
   config.hostmanager.manage_host = true
+  config.hostmanager.manage_guest = true
   config.hostmanager.ignore_private_ip = false
   config.hostmanager.include_offline = true
-  config.vm.synced_folder "ansible/script/cert/","/cert"
-#  config.vm.provision "ansible" do |ansible|
-#    ansible.limit = "all"
-#    ansible.playbook = "ansible/k8s-bootstrap.yaml"
-#    ansible.groups = {
-#      "all"   =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13",
-#                  "K8SKACS21", "K8SKACS22", "K8SKACS23",
-#                  "K8SWORKER31", "K8SWORKER32", "K8SWORKER33",
-#                  "K8SLB61"],
-#      "etcd"    =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13"],
-#      "kacs"    =>  ["K8SKACS21", "K8SKACS22", "K8SKACS23"],
-#      "worker"  =>  ["K8SWORKER31", "K8SWORKER32", "K8SWORKER33"],
-#      "lb"      =>  ["K8SLB61"]
-#    }
+
+  (1..NUM_LOADBALANCER).each do |i|
+    config.vm.define "K8SLB6#{i}" do |node|
+      node.vm.provider "virtualbox" do |vb|
+        vb.name = "K8SLB6#{i}"
+        vb.memory= 512
+        vb.cpus= 1
+      end
+      node.vm.hostname = "K8SLB6#{i}"
+      node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START + i}", netmask: "255.255.255.0"
+      node.vm.provision "file", source: ssh_key + ".pub", destination: "~/.ssh/authorized_keys"
+    end
+  end
 
   (1..NUM_MASTER_ETCD).each do |i|
     config.vm.define "K8SETCD1#{i}" do |node|
@@ -57,76 +55,71 @@ Vagrant.configure("2") do |config|
       end
       node.vm.hostname = "K8SETCD#{MASTER_IP_ETCD + i}"
       node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_ETCD + i}"
-    end
-    config.vm.provision "ansible" do |ansible|
-      ansible.limit = "etcd"
-      ansible.playbook = "ansible/k8s-etcd.yaml"
-      ansible.groups = {
-        "all"     =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13",
-                        "K8SKACS21", "K8SKACS22", "K8SKACS23",
-                        "K8SWORKER31", "K8SWORKER32", "K8SWORKER33",
-                        "K8SLB61"],
-        "etcd"    =>  ["K8SETCD11", "K8SETCD12", "K8SETCD13"],
-        "kacs"    =>  ["K8SKACS21", "K8SKACS22", "K8SKACS23"],
-        "worker"  =>  ["K8SWORKER31", "K8SWORKER32", "K8SWORKER33"],
-        "lb"      =>  ["K8SLB61"]
-      }
-      ansible.extra_vars = {
-      }
-      ansible.verbose = ""
+      node.vm.provision "file", source: ssh_key + ".pub", destination: "~/.ssh/authorized_keys"
     end
   end
 
-#  (1..NUM_MASTER_KACS).each do |i|
-#    config.vm.define "K8SKACS#{i}" do |node|
-#      node.vm.provider "virtualbox" do |vb|
-#        vb.name = "K8SKACS2#{i}"
-#        vb.memory= 512
-#        vb.cpus=1
-#      end
-#      node.vm.hostname = "K8SKACS#{MASTER_IP_KACS + i}"
-#      node.vm.network :private_network, ip: IP_NW + "#{NUM_MASTER_KACS + i}", netmask: "255.255.255.0"
-#    end
-#    config.vm.provision "ansible" do |ansible|
-#      ansible.playbook= "ansible/k8s-controller.yml"
-#      ansible.extra_vars = {
-#       NSRV:  NUM_MASTER_KACS
-#      }
-#      ansible.verbose= "v"
-#    end
-#  end
-# 
-#  (1..NUM_WORKER_NODE).each do |i|
-#    config.vm.define "K8SWORKER#{i}" do |node|
-#      node.vm.provider "virtualbox" do |vb|
-#        vb.name = "K8SWORKER#{NODE_IP_START + i}"
-#        vb.memory= 512
-#        vb.cpus=1
-#      end
-#      node.vm.hostname = "K8SWORKER#{NODE_IP_START + i}"
-#      node.vm.network :private_network, ip: IP_NW + "#{NODE_IP_START + i}", netmask: "255.255.255.0"
-#    end
-#    config.vm.provision "ansible" do |ansible|
-#      ansible.playbook= "ansible/k8s-worker.yml"
-#      ansible.extra_vars = {
-#        POD_CIDR: '10.244.0.0/16',
-#        API_SERVICE: '10.244.0.1',
-#        CLUSTERDNS: '10.244.0.10',
-#        NODE: NUM_WORKER_NODE
-#      }
-#      ansible.verbose= "v"
-#    end
-#  end
-# 
-#    (1..NUM_LOADBALANCER).each do |i|
-#      config.vm.define "K8SLB6#{i}" do |node|
-#        node.vm.provider "virtualbox" do |vb|
-#          vb.name = "K8SLB6#{i}"
-#          vb.memory= 512
-#          vb.cpus=1
-#        end
-#        node.vm.hostname = "K8SLB6#{i}"
-#        node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START + i}", netmask: "255.255.255.0"
-#      end
-#    end
+  (1..NUM_MASTER_KACS).each do |i|
+    config.vm.define "K8SKACS2#{i}" do |node|
+      node.vm.provider "virtualbox" do |vb|
+        vb.name = "K8SKACS2#{i}"
+        vb.memory= 512
+        vb.cpus=1
+      end
+      node.vm.hostname = "K8SKACS#{MASTER_IP_KACS + i}"
+      node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_KACS + i}"
+      node.vm.provision "file", source: ssh_key + ".pub", destination: "~/.ssh/authorized_keys"
+    end
+  end
+
+  (1..NUM_WORKER_NODE).each do |i|
+    config.vm.define "K8SWORKER#{NODE_IP_START + i}" do |node|
+      node.vm.provider "virtualbox" do |vb|
+        vb.name = "K8SWORKER#{NODE_IP_START + i}"
+        vb.memory= 512
+        vb.cpus=1
+      end
+      node.vm.hostname = "K8SWORKER#{NODE_IP_START + i}"
+      node.vm.network :private_network, ip: IP_NW + "#{NODE_IP_START + i}", netmask: "255.255.255.0"
+      node.vm.provision "file", source: ssh_key + ".pub", destination: "~/.ssh/authorized_keys"
+    end
+  end
+ 
+  config.vm.provision "ansible" do |ansible|
+    ansible.limit = "all"
+    ansible.playbook = "ansible/k8s-all.yaml"
+    ansible.groups = {
+      "all"   =>  ["K8SLB61", "K8SETCD11", "K8SETCD12", "K8SKACS21", "K8SKACS22", "K8SWORKER31", "K8SWORKER32", "K8SWORKER33"],
+      "etcd"    =>  ["K8SETCD11", "K8SETCD12"],
+      "kacs"    =>  ["K8SKACS21", "K8SKACS22"],
+      "worker"  =>  ["K8SWORKER31", "K8SWORKER32", "K8SWORKER33"],
+      "lb"      =>  ["K8SLB61"]
+    }
+    ansible.extra_vars = {
+      ca_k8s_expiry: "8760h",
+      ca_k8s_algo: "rsa",
+      ca_k8s_size: "2048",
+      ca_k8s_c: "MX",
+      ca_k8s_l: "SLP",
+      ca_k8s_o: "K8S",
+      ca_k8s_ou_ca: "CA",
+      ca_k8s_ou: "k8s",
+      ca_k8s_st: "Thyton",
+      ca_k8s_cn_admin: "admin",
+      ca_k8s_cn_kubernetes: "kubernetes",
+      csr_json: "script/cert/json/",
+      directory_cert: "/tmp/cert/",
+      SERVICE_NETWORK: '10.96.0.1',
+      POD_CIDR: '10.244.0.0/16',
+      API_SERVICE: '10.244.0.1',
+      CLUSTERDNS: '10.244.0.10',
+      NODE: "NUM_WORKER_NODE",
+      NUM_MASTER_ETCD: "NUM_MASTER_ETCD",
+      DISCOVERY_ETCD: "https://discovery.etcd.io/47a743f1cc0d4fa19f1afd45af62225e",
+      FETCH_COPY: "script/cert/pem",
+      DIRECTORY_PEM: "script/cert/pem/K8SLB61/tmp/cert/",
+      k8s_cert_hosts: "localhost,kubernetes,kubernetes.default,kubernetes.default.svc,kubernetes.default.svc.cluster,kubernetes.default.svc.cluster.local"
+    }
+    ansible.verbose= ""
+  end
 end

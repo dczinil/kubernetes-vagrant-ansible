@@ -1,22 +1,8 @@
 ---
-- hosts: all
+- hosts: kacs 
   become: true
   vars:
   tasks:
-    - name: copy script hosts
-      copy:
-        src: script/hosts.sh 
-        dest: /etc/profile.d/hosts.sh
-        owner: vagrant
-        group: vagrant
-        mode: '0770'
-    - name: source var hosts
-      shell: |
-        source /etc/profile.d/hosts.sh
-      args:
-        chdir: /home/vagrant
-        executable: /bin/bash
-
     - name: Directory
       file:
         path: "{{ item }}"
@@ -29,39 +15,46 @@
         - /etc/k8s/config
         - /var/lib/k8s
 
+    - name: Install a list of packages
+      apt:
+        state: present
+        update_cache: yes
+        cache_valid_time: 86400
+        pkg:
+        - ca-certificates
+        - curl
+        - wget
+        - gnupg-agent
+        - software-properties-common
+        - apt-transport-https
+        - socat
+        - conntrack
+        - ipset
+        - golang-cfssl
 
-    - name: Make direcories
-      file:
-        path: "{{ item }}"
-        state: touch
-        owner: root 
-        group: root 
-        mode: 0700
-      with_items:
-        - /var/lib/k8s/encryption-config.yaml
-
-    - name: encryption 
-      shell: head -c 32 /dev/urandom | base64 
-      register: result
-    - name: The encryption key
-      blockinfile:
-        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
-        owner: root
-        group: root
-        mode: 0750
-        path: /var/lib/k8s/encryption-config.yaml
+    - name: install Golang upstream
+      unarchive:
+        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
+        dest: /usr/local/
+        remote_src: True
+    - name: Set custom Golang path root
+      blockinfile: 
+        path: /root/.bashrc
         block: |
-          kind: EncryptionConfig
-          apiVersion: v1
-          resources:
-            - resources:
-              - secrets
-              providers:
-              - aescbc:
-                keys:
-                - name: key1
-                  secret: {{ result.stdout  }}
-              - identity: {}
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: Set Custom Golang path User
+      blockinfile: 
+        path: /home/vagrant/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: link golang
+      file: src=/usr/local/go/bin/go dest=/bin/go state=link
 
     - name: install kubectl kube-proxy kubelet
       get_url:
@@ -76,299 +69,57 @@
 
     - name: copy encryption
       copy:
-        src: script/cert/
-        dest: "{{ item }}"
+        src: "{{ item }}"
+        dest: /var/lib/k8s/
         owner: root
         group: root
         mode: 0750
       with_items:
-        - '/var/lib/kubelet/ca.pem'
-        - '/var/lib/kubelet/kubernetes-key.pem'
-        - '/var/lib/kubelet/kubernetes.pem'
-        - '/var/lib/kubelet/service-account-key.pem'
-        - '/var/lib/kubelet/service-accountou.pem'
-        - '/var/lib/kubelet/kubeconfig/{{ result.stdout  }}.kubeconfig'
+        - 'script/cert/ca.pem'
+        - 'script/cert/ca-key.pem'
+        - 'script/cert/kubernetes-key.pem'
+        - 'script/cert/kubernetes.pem'
+        - 'script/cert/service-account-key.pem'
+        - 'script/cert/service-account.pem'
+        - 'script/cert/encryption-config.yaml'
+        - 'script/cert/kube-controller-manager.kubeconfig'
+        - 'script/cert/kube-scheduler.kubeconfig'
 
-    - name: var ip host 
-      shell:  ip -4 addr show | grep "192" | head -1 |awk '{print $2}' | cut -d/ -f1
-      register: result
-    - name: kube-api-server.service 
-      blockinfile:
-        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+    - name: "service kube-api"
+      template:
+        src: fileconf/kube-apiserver.service.yaml.j2
+        dest: /etc/systemd/system/kube-apiserver.service
         owner: root
         group: root
-        mode: 0750
-        path: /etc/systemd/system/kube-apiserver.service
-        block: |
-          [Unit]
-          Description=Kubernetes API Server
-          Documentation=https://github.com/kubernetes/kubernetes
-          
-          [Service]
-          ExecStart=/usr/local/bin/kube-apiserver
-            --advertise-address={{ result.stdout }}
-            --allow-privileged=true
-            --apiserver-count=3
-            --audit-log-maxage=30
-            --audit-log-maxbackup= {{ NSRV }}
-            --audit-log-maxsize=100
-            --audit-log-path=/var/log/audit.log
-            --authorization-mode=Node,RBAC
-            --bind-address=0.0.0.0
-            --client-ca-file=/var/lib/k8s/ca.pem
-            --enable-admission-plugins=NamespaceLifecycle,NodeRestriction,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota
-            --etcd-cafile=/var/lib/k8s/ca.pem
-            --etcd-certfile=/var/lib/k8s/kubernetes.pem
-            --etcd-keyfile=/var/lib/k8s/kubernetes-key.pem
-            --etcd-servers=https://10.240.0.10:2379,https://10.240.0.11:2379,https://10.240.0.12:2379 \\
-            --event-ttl=1h \\
-            --encryption-provider-config=/var/lib/kubernetes/encryption-config.yaml \\
-            --kubelet-certificate-authority=/var/lib/kubernetes/ca.pem \\
-            --kubelet-client-certificate=/var/lib/kubernetes/kubernetes.pem \\
-            --kubelet-client-key=/var/lib/kubernetes/kubernetes-key.pem \\
-            --runtime-config='api/all=true' \\
-            --service-account-key-file=/var/lib/kubernetes/service-account.pem \\
-            --service-account-signing-key-file=/var/lib/kubernetes/service-account-key.pem \\
-            --service-account-issuer=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \\
-            --service-cluster-ip-range=10.32.0.0/24 \\
-            --service-node-port-range=30000-32767 \\
-            --tls-cert-file=/var/lib/kubernetes/kubernetes.pem \\
-            --tls-private-key-file=/var/lib/kubernetes/kubernetes-key.pem \\
-            --v=2
-          Restart=on-failure
-          RestartSec=5
-          
-          [Install]
-          WantedBy=multi-user.target
+        mode: 0751
 
-#    - name: install Golang upstream
-#      unarchive:
-#        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
-#        dest: /usr/local/
-#        remote_src: True
-#    - name: Set custom Golang path root
-#      blockinfile: 
-#        path: /root/.bashrc
-#        block: |
-#          export GOPATH=/home/vagrant/go
-#          export GOBIN=$GOPATH/bin
-#          export GOROOT=/usr/local/go
-#          export PATH=$PATH:$GOBIN:$GOROOT/bin
-#    - name: Set Custom Golang path User
-#      blockinfile: 
-#        path: /home/vagrant/.bashrc
-#        block: |
-#          export GOPATH=/home/vagrant/go
-#          export GOBIN=$GOPATH/bin
-#          export GOROOT=/usr/local/go
-#          export PATH=$PATH:$GOBIN:$GOROOT/bin
-#    - name: link golang
-#      file: src=/usr/local/go/bin/go dest=/bin/go state=link
-#
-#
-#    - name: enable cri-repo
-#      environment:
-#        OS: xUbuntu_20.04 
-#        VERSION: 1.26
-#      shell: |
-#        echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /" > /etc/apt/sources.list.d/cri-o:$OS.list
-#        echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/ /" > /etc/apt/sources.list.d/cri-o:$VERSION.list
-#        curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/Release.key | apt-key add -
-#        curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o/$OS/Release.key | apt-key add -
-#
-#    - name: Install a list of packages
-#      apt:
-#        state: present
-#        update_cache: yes
-#        cache_valid_time: 86400
-#        pkg:
-#        - ca-certificates
-#        - curl
-#        - wget
-#        - gnupg-agent
-#        - software-properties-common
-#        - apt-transport-https
-#        - socat
-#        - conntrack
-#        - ipset
-#        - cri-o
-#        - cri-o-runc
-#        - cri-tools
-#        - golang-cfssl
-#
-#    - name: install cni
-#      unarchive:
-#        src: https://github.com/containernetworking/plugins/releases/download/v1.2.0/cni-plugins-linux-amd64-v1.2.0.tgz
-#        dest: /opt/cni/bin
-#        remote_src: yes
-#
-#    - name: Var Hostname
-#      command: uname -n
-#      register: result
-#
-#    - name: Remove swapfile from /etc/fstab
-#      mount:
-#        name: "{{ item }}"
-#        fstype: swap
-#        state: absent
-#      with_items:
-#        - swap
-#        - none
-#    - name: Disable swap
-#      command: swapoff -a
-#    - name: Forwarding overlay VxLan
-#      blockinfile: 
-#        path: /etc/modules-load.d/crio.conf
-#        block: |
-#          overlay
-#          br_netfilter
-#    - name: enable overlayFS & VxLan
-#      shell: |
-#        sudo modprobe overlay
-#        sudo modprobe br_netfilter
-#    - name: add configuration
-#      blockinfile: 
-#        path: /etc/sysctl.d/cri.conf
-#        block: |
-#          net.bridge.bridge-nf-call-iptables = 1
-#          net.ipv4.ip_forward = 1
-#          net.bridge.bridge-nf-call-ip6tables = 1
-#    - name: Reload parameters
-#      command: sudo sysctl --system
-#
-#    - name: 10-bridge.conflist
-#      shell: |
-#        cat <EOF | sudo tee /etc/cni/net.d/10-brindge.conflist
-#        {
-#          "cniVersion": "1.0.0",
-#          "name": "crio",
-#          "plugins": [
-#            {
-#              "type": "bridge",
-#              "bridge": "cni0",
-#              "isGateway": true,
-#              "ipMasq": true,
-#              "hairpinMode": true,
-#              "ipam": {
-#                "type": "host-local",
-#                "routes": [
-#                    { "dst": "0.0.0.0/0" }
-#                ],
-#                "ranges": [
-#                    [{ "subnet": "{{ POD_CIDR }}"]
-#                ]
-#              }
-#            }
-#          ]
-#        }
-#        EOF
-#        chmod ug+x /etc/cni/net.d/10-brindge.conflist
-#
-#    - name: config looback
-#      shell: |
-#        cat <EOF | sudo tee /etc/cni/net.d/99-looback.conflist
-#        {
-#          "cniVersion": "1.0.0",
-#          "name": "lo",
-#          "plugins":[
-#            {
-#              "type": "loopback"
-#            }
-#          ]
-#        }
-#        EOF
-#        chmod ug+x /etc/cni/net.d/99-looback.conflist
-#
-#    - name: tranfer crio config
-#      synchronize:
-#        src: ./fileconf/crio.conf
-#        dest: /etc/crio/crio.conf
-#
-#    - name: Var Hostname
-#      command: uname -n
-#      register: result
-#    - name: Create the kuelet-config.yaml
-#      blockinfile:
-#        path: /var/lib/kubelet/kubelet-config.yaml
-#        block: |
-#          kind: KubeletConfiguration
-#          apiVersion: kubelet.config.k8s.io/v1beta1
-#          authentication:
-#            anonymous:
-#              enabled: false
-#            webhook:
-#              enabled: true
-#            x509:
-#              clientCAFile: "/var/lib/k8s/ca.pem"
-#          authorization:
-#            mode: Webhook
-#          clusterDomain: "kyber.local"
-#          clusterDNS:
-#            - "{{ CLUSTERDNS }}"
-#          podCIDR: "{{ POD_CIDR }}"
-#          resolvConf: "/run/systemd/resolve/resolv.conf"
-#          runtimeRequestTimeout: "15m"
-#          tlsCertFile: "/var/lib/kubelet/{{ result.stdout }}.pem"
-#          tlsPrivateKeyFile: "/var/lib/kubelet/{{ result.stdout }}-key.pem"
-#
-#    - name: Create the kubelet.service
-#      blockinfile:
-#        path: /etc/systemd/system/kubelet.service
-#        block: |
-#          [Unit]
-#          Description=Kubernetes Kubelet
-#          Documentation=https://github.com/kubernetes/kubernetes
-#          After=crio.service
-#          Requires=crio.service
-#          [Service]
-#          ExecStart=/usr/local/bin/kubelet
-#            --config=/var/lib/kubelet/kubelet-config.yaml
-#            --container-runtime=remote
-#            --container-runtime-endpoint=unix:///var/run/crio/crio.sock
-#            --image-pull-progress-deadline=2m
-#            --kubeconfig=/var/lib/kubelet/kubeconfig
-#            --network-plugin=cni
-#            --register-node=true
-#            --v=2
-#          Restart=on-failure
-#          RestartSec=5
-#          [Install]
-#          WantedBy=multi-user.target
-#
-#    - name: Configure the K8s Proxy
-#      blockinfile:
-#        path: /var/lib/kube-proxy/kube-proxy-config.yaml
-#        block: |
-#          kind: KubeProxyConfiguration
-#          apiVersion: kubeproxy.config.k8s.io/v1alpha1
-#          clientConnection:
-#            kubeconfig: "/var/lib/kube-proxy/kubeconfig"
-#          mode: "iptables"
-#          clusterCIDR: "{{ POD_CIDR }}"
-#
-#    - name: The kube-proxy.service 
-#      blockinfile:
-#        path: /etc/systemd/system/kube-proxy.service
-#        block: |
-#          [Unit]
-#          Description=Kubernetes Kube Proxy
-#          Documentation=https://github.com/kubernetes/kubernetes
-#          [Service]
-#          ExecStart=/usr/local/bin/kube-proxy \\
-#            --config=/var/lib/kube-proxy/kube-proxy-config.yaml
-#          Restart=on-failure
-#          RestartSec=5
-#          [Install]
-#          WantedBy=multi-user.target
-#
-#    - name: 
-#      systemd:
-#        name: "{{ item }}"
-#        masked: no
-#        state: started
-#        enabled: yes
-#      with_items:
-#        - crio
-#        - kubelet
-#        - kube-proxy
+    - name: "service kube-controller-manager"
+      template:
+        src: fileconf/kube-controller-manager.service.yaml.j2
+        dest: /etc/systemd/system/kube-controller-manager.service
+        owner: root
+        group: root
+        mode: 0751
+
+    - name: "Configure kube-scheduler"
+      template:
+        src: fileconf/kube-scheduler.yaml.j2
+        dest: /etc/k8s/config/kube-scheduler.yaml
+        owner: root
+        group: root
+        mode: 0751
+
+    - name: "Service kube-scheduler"
+      template:
+        src: fileconf/kube-scheduler.service.yaml.j2
+        dest: /etc/systemd/system/kube-scheduler.service
+        owner: root
+        group: root
+        mode: 0751
+
+    - name: "Services"
+      shell: |
+        sudo systemctl daemon-reload
+        sudo systemctl enable kube-apiserver kube-controller-manager kube-scheduler
+        sudo systemctl start kube-apiserver kube-controller-manager kube-scheduler
 ...

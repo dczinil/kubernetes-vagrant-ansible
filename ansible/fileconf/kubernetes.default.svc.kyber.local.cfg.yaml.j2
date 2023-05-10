@@ -1,0 +1,9 @@
+server {
+  listen      80;
+  server_name kubernetes.default.svc.cluster.local;
+
+  location /healthz {
+     proxy_pass                    {% for host in groups['lb'] %}https://{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}:6443/healthz;{% endfor %}
+     proxy_ssl_trusted_certificate /var/lib/k8s/ca.pem;
+  }
+}

@@ -1,13 +1,192 @@
 ---
+- hosts: all  
+  become: true
+  vars_files:
+    - vars_files.yaml
+  tasks:
+    - name: Directory
+      file:
+        path: "{{ item }}"
+        state: directory
+        recurse: true
+      with_items:
+        - /tmp/cer
+      delegate_to: K8SLB61
+    - name: "TESTING IPV4 ENP0S8"
+      debug: var=ansible_default_ipv4
+      delegate_to: K8SLB61
+    - name: "ca config"
+      template:
+        src: "{{ csr_json }}ca-config.json.j2"
+        dest: "{{ directory_cert }}ca-config.json"
+      delegate_to: K8SLB61
+    - name: "ca csr"
+      template:
+        src: "{{ csr_json }}ca-csr.json.j2"
+        dest: "{{ directory_cert }}ca-csr.json"
+      delegate_to: K8SLB61
+    - name: "admin csr"
+      template:
+        src: "{{ csr_json }}admin-csr.json.j2"
+        dest: "{{ directory_cert }}admin-csr.json"
+      delegate_to: K8SLB61
+    - name: "kube_controller_manager csr"
+      template:
+        src: "{{ csr_json }}kube-controller-manager-csr.json.j2"
+        dest: "{{ directory_cert }}kube-controller-manager-csr.json"
+      delegate_to: K8SLB61
+    - name: "kube_proxy csr"
+      template:
+        src: "{{ csr_json }}kube-proxy-csr.json.j2"
+        dest: "{{ directory_cert }}kube-proxy-csr.json"
+      delegate_to: K8SLB61
+    - name: "kube_scheduler csr"
+      template:
+        src: "{{ csr_json }}kube-scheduler-csr.json.j2"
+        dest: "{{ directory_cert }}kube-scheduler-csr.json"
+      delegate_to: K8SLB61
+    - name: "kubernetes csr"
+      template:
+        src: "{{ csr_json }}kubernetes-csr.json.j2"
+        dest: "{{ directory_cert }}kubernetes-csr.json"
+      delegate_to: K8SLB61
+    - name: "service_account csr"
+      template:
+        src: "{{ csr_json }}service-account-csr.json.j2"
+        dest: "{{ directory_cert }}service-account-csr.json"
+      delegate_to: K8SLB61
+    - name: "The Kubelet client certificates"
+      template:
+        src: "{{ csr_json }}worker-csr.json.j2"
+        dest: "{{ directory_cert }}{{ item }}-csr.json"
+      with_inventory_hostnames:
+        - worker
+      delegate_to: K8SLB61
+    - name: Generate the certificate authority CA
+      shell: >
+        cfssl gencert \
+          -initca ca-csr.json \
+        | cfssljson -bare ca
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+      delegate_to: K8SLB61
+    - name: "Generate TLS certificate for admin user"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -profile=kubernetes \
+          admin-csr.json \
+        | cfssljson -bare admin
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+      delegate_to: K8SLB61
+    - name: "Generate TLS Certificates for Kubernetes Worker hosts"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -hostname={{ hostvars[item]['inventory_hostname'] }},{{ hostvars[item]['ansible_ssh_host']['address'] }}\
+          -profile=kubernetes \
+          "{{ item }}-csr.json" \
+        | cfssljson -bare "{{ item }}"
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+        creates: "{{ directory_cert }}{{item}}-key.pem"
+      with_inventory_hostnames:
+        - worker
+      delegate_to: K8SLB61
+    - name: "Generate TLS Certificates for Kube-controller-manager"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -profile=kubernetes \
+          kube-controller-manager-csr.json \
+        | cfssljson -bare kube-controller-manager
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+        creates: "{{ directory_cert }}kube-controller-manager-key.pem"
+      delegate_to: K8SLB61
+    - name: "Generate TLS Certificates for Kube-proxy"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -profile=kubernetes \
+          kube-proxy-csr.json \
+        | cfssljson -bare kube-proxy
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+        creates: "{{ directory_cert }}kube-proxy-key.pem"
+      delegate_to: K8SLB61
+    - name: "Generate TLS Certificates for Kube-scheduler"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -profile=kubernetes \
+          kube-scheduler-csr.json \
+        | cfssljson -bare kube-scheduler
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+        creates: "{{ directory_cert }}kube-scheduler-key.pem"
+      delegate_to: K8SLB61
+    - name: "Generate TLS Certificates for Kubernetes"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -hostname="{{ k8s_cert_hosts }},127.0.0.1,{% for host in groups['lb'] %}{{ hostvars[host]['ansible_ssh_host']['address'] }}{% if not loop.last %},{% endif %}{% endfor %},{{ SERVICE_NETWORK }},{% for host in groups['etcd'] %}{{ hostvars[host]['ansible_ssh_host']['address'] }}{% if not loop.last %},{% endif %}{% endfor %},{% for host in groups['kacs'] %},{{ hostvars[host]['ansible_ssh_host']['address'] }}{% if not loop.last %},{% endif %}{% endfor %},{% for host in groups['worker'] %}{{ hostvars[host]['ansible_ssh_host']['address'] }}{% if not loop.last %},{% endif %}{% endfor %}" \
+          -profile=kubernetes \
+          kubernetes-csr.json \
+        | cfssljson -bare kubernetes
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+        creates: "{{ directory_cert }}kubernetes-key.pem"
+      delegate_to: K8SLB61
+    - name: "Generate TLS Certificates for service-account"
+      shell: |
+        cfssl gencert \
+          -ca=ca.pem \
+          -ca-key=ca-key.pem \
+          -config=ca-config.json \
+          -profile=kubernetes \
+          service-account-csr.json \
+        | cfssljson -bare service-account
+      args:
+        executable: "/bin/bash"
+        chdir: "{{ directory_cert }}"
+        creates: "{{ directory_cert }}service-account-key.pem"
+      delegate_to: K8SLB61
 - hosts: all
   become: true
-  vars:
+  vars_files:
+    - vars_files.yaml
   tasks:
     - name: "Retrieve hostname"
       command: hostname
       register: output
     - name: "Print name"
       debug: var=output.stdout_lines
+    - name: "known_hosts"
+      file: 
+        path: /home/vagrant/.ssh/known_hosts
+        state: touch
+
     - name: add IP address of all hosts to all hosts
       blockinfile:
         dest: /etc/hosts
@@ -31,9 +210,34 @@
       copy:
         src: id_rsa.pub
         dest: /home/vagrant/.ssh/id_rsa.pub
+
     - name: "id_rsa authority" 
       shell: |
-        cat /home/vagrant/.ssh/id_rsa.pub >> /home/vagrant/authorized_keys
+        cat /home/vagrant/.ssh/id_rsa.pub >> /home/vagrant/.ssh/authorized_keys
+      register: output_shell_cat_id_rsa
+    - name: "Testing cat authorized_keys"
+      debug: var=output_shell_cat_id_rsa.stdout_lines
+        
+    - name: "ssh-keygen {{ inventory_hostname }}"
+      shell:  |
+        {% for host in groups['all'] %} 
+        ssh-keygen -R {{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }} 
+        {% endfor %}
+      become: true
+      become_user: vagrant
+      register: output_shell_ssh_keygen
+    - name: "Testing shell ssh-keygen"
+      debug: var=output_shell_ssh_keygen.stdout_lines
+
+    - name: "ssh-keyscan {{ inventory_hostname }}"
+      shell:  |
+        ssh-keyscan -t rsa -f /home/vagrant/.ssh/known_hosts | sort -u /home/vagrant/.ssh/known_hosts
+      become: true
+      become_user: vagrant
+      register: output_shell_ssh_keyscan
+    - name: "Testing shell ssh-keyscan"
+      debug: var=output_shell_ssh_keyscan.stdout_lines
+
     - name: "Create group"
       group: 
         name: etcd
@@ -66,29 +270,29 @@
         - /home/vagrant/go
         - /opt/cni/bin
         - /tmp/cert
-#    - name: install Golang upstream
-#      unarchive:
-#        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
-#        dest: /usr/local/
-#        remote_src: True
-#    - name: Set custom Golang path root
-#      blockinfile: 
-#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
-#        path: /root/.bashrc
-#        block: |
-#          export GOPATH=/home/vagrant/go
-#          export GOBIN=$GOPATH/bin
-#          export GOROOT=/usr/local/go
-#          export PATH=$PATH:$GOBIN:$GOROOT/bin
-#    - name: Set Custom Golang path User
-#      blockinfile: 
-#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
-#        path: /home/vagrant/.bashrc
-#        block: |
-#          export GOPATH=/home/vagrant/go
-#          export GOBIN=$GOPATH/bin
-#          export GOROOT=/usr/local/go
-#          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: install Golang upstream
+      unarchive:
+        src: https://dl.google.com/go/go1.20.1.linux-amd64.tar.gz
+        dest: /usr/local/
+        remote_src: True
+    - name: Set custom Golang path root
+      blockinfile: 
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        path: /root/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
+    - name: Set Custom Golang path User
+      blockinfile: 
+        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+        path: /home/vagrant/.bashrc
+        block: |
+          export GOPATH=/home/vagrant/go
+          export GOBIN=$GOPATH/bin
+          export GOROOT=/usr/local/go
+          export PATH=$PATH:$GOBIN:$GOROOT/bin
     - name: link golang
       file: src=/usr/local/go/bin/go dest=/bin/go state=link
     - name: Install a list of packages
@@ -115,7 +319,8 @@
 ######################################
 - hosts: lb
   become: true
-  vars:
+  vars_files:
+    - vars_files.yaml
   tasks:
     - name: "Retrieve hostname"
       command: hostname
@@ -133,14 +338,14 @@
         src: "{{ item }}"
         dest: /var/lib/k8s/
       with_items:
-        - script/cert/admin.kubeconfig
-        - script/cert/kube-controller-manager.kubeconfig
-        - script/cert/kube-scheduler.kubeconfig
-        - script/cert/ca.pem
-        - script/cert/ca-key.pem
-        - script/cert/kubernetes-key.pem
-        - script/cert/kubernetes.pem
-        - script/cert/encryption-config.yaml
+        - "{{ directory_cert }}admin.kubeconfig"
+        - "{{ directory_cert }}kube-controller-manager.kubeconfig"
+        - "{{ directory_cert }}kube-scheduler.kubeconfig"
+        - "{{ directory_cert }}ca.pem"
+        - "{{ directory_cert }}ca-key.pem"
+        - "{{ directory_cert }}kubernetes-key.pem"
+        - "{{ directory_cert }}kubernetes.pem"
+        - "{{ directory_cert }}encryption-config.yaml"
 #    - name: "backup config default"
 #      shell: |
 #        sudo mv /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg_$(date +"%d-%m-%y").bak
@@ -151,201 +356,31 @@
 #        owner: root
 #        group: root
 #        mode: 0751
-    - name: "ca config"
-      template:
-        src: "{{ csr_json }}ca-config.json.j2"
-        dest: "{{ directory_cert }}ca-config.json"
-    - name: "ca csr"
-      template:
-        src: "{{ csr_json }}ca-csr.json.j2"
-        dest: "{{ directory_cert }}ca-csr.json"
-    - name: "admin csr"
-      template:
-        src: "{{ csr_json }}admin-csr.json.j2"
-        dest: "{{ directory_cert }}admin-csr.json"
-    - name: "kube_controller_manager csr"
-      template:
-        src: "{{ csr_json }}kube-controller-manager-csr.json.j2"
-        dest: "{{ directory_cert }}kube-controller-manager-csr.json"
-    - name: "kube_proxy csr"
-      template:
-        src: "{{ csr_json }}kube-proxy-csr.json.j2"
-        dest: "{{ directory_cert }}kube-proxy-csr.json"
-    - name: "kube_scheduler csr"
-      template:
-        src: "{{ csr_json }}kube-scheduler-csr.json.j2"
-        dest: "{{ directory_cert }}kube-scheduler-csr.json"
-    - name: "kubernetes csr"
-      template:
-        src: "{{ csr_json }}kubernetes-csr.json.j2"
-        dest: "{{ directory_cert }}kubernetes-csr.json"
-    - name: "service_account csr"
-      template:
-        src: "{{ csr_json }}service-account-csr.json.j2"
-        dest: "{{ directory_cert }}service-account-csr.json"
-    - name: "The Kubelet client certificates"
-      template:
-        src: "{{ csr_json }}worker-csr.json.j2"
-        dest: "{{ directory_cert }}{{ item }}-csr.json"
-      with_inventory_hostnames:
-        - worker
-      vars: 
-        - host_cfssl: "{{ item }}"
-    - name: "Permisioon"
-      shell: |
-        chmod -R 771 /tmp/cert/
-        chown -R root:root /tmp/cert/
-    - name: Generate the certificate authority CA
-      shell: >
-        cfssl gencert \
-          -initca ca-csr.json \
-        | cfssljson -bare ca
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-    - name: "Generate TLS certificate for admin user"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -profile=kubernetes \
-          admin-csr.json \
-        | cfssljson -bare admin
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-    - name: "Generate TLS Certificates for Kubernetes Worker hosts"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -hostname={{ hostvars[item]['inventory_hostname'] }},{{ hostvars[item]['ansible_facts']['enp0s8']['ipv4']['address'] }},{{ hostvars[item]['ansible_facts']['lo']['ipv4']['address'] }} \
-          -profile=kubernetes \
-          "{{ item }}-csr.json" \
-        | cfssljson -bare "{{ item }}"
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-        creates: "{{ directory_cert }}{{item}}-key.pem"
-      with_inventory_hostnames:
-        - worker
-    - name: "Generate TLS Certificates for Kube-controller-manager"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -profile=kubernetes \
-          kube-controller-manager-csr.json \
-        | cfssljson -bare kube-controller-manager
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-        creates: "{{ directory_cert }}kube-controller-manager-key.pem"
-    - name: "Generate TLS Certificates for Kube-proxy"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -profile=kubernetes \
-          kube-proxy-csr.json \
-        | cfssljson -bare kube-proxy
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-        creates: "{{ directory_cert }}kube-proxy-key.pem"
-    - name: "Generate TLS Certificates for Kube-scheduler"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -profile=kubernetes \
-          kube-scheduler-csr.json \
-        | cfssljson -bare kube-scheduler
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-        creates: "{{ directory_cert }}kube-scheduler-key.pem"
-    - name: "Generate TLS Certificates for Kubernetes"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -hostname={{ k8s_cert_hosts }},127.0.0.1,{% for host in groups['lb'] %}{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}{% if not loop.last %},{% endif %}{% endfor %},{{ SERVICE_NETWORK }},{% for host in groups['etcd'] %}{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}{% if not loop.last %},{% endif %}{% endfor %},{% for host in groups['kacs'] %},{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}{% if not loop.last %},{% endif %}{% endfor %},{% for host in groups['worker'] %}{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}{% if not loop.last %},{% endif %}{% endfor %} \
-          -profile=kubernetes \
-          kubernetes-csr.json \
-        | cfssljson -bare kubernetes
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-        creates: "{{ directory_cert }}kubernetes-key.pem"
-    - name: "Generate TLS Certificates for service-account"
-      shell: |
-        cfssl gencert \
-          -ca=ca.pem \
-          -ca-key=ca-key.pem \
-          -config=ca-config.json \
-          -profile=kubernetes \
-          service-account-csr.json \
-        | cfssljson -bare service-account
-      args:
-        executable: "/bin/bash"
-        chdir: "{{ directory_cert }}"
-        creates: "{{ directory_cert }}service-account-key.pem"
-          
-    - name: "Fetch the file '{{ item }}-csr.json', '{{ item }}-key.pem', '{{ item }}.csr', '{{ item }}.pem', from the worker to master controller"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}-csr.json"
-        dest: "{{ FETCH_COPY }}"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}-key.pem"
-        dest: "{{ FETCH_COPY }}"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}.csr"
-        dest: "{{ FETCH_COPY }}"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}.pem"
-        dest: "{{ FETCH_COPY }}"
-      with_inventory_hostnames:
-        - worker
-    - name: "Fetch testing"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}-csr.json"
-        dest: "{{ FETCH_COPY }}"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}-key.pem"
-        dest: "{{ FETCH_COPY }}"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}.csr"
-        dest: "{{ FETCH_COPY }}"
-      fetch: 
-        src: "{{ directory_cert }}{{ item }}.pem"
-        dest: "{{ FETCH_COPY }}"
-#    - name: "Fetch the file {{ item }}-key.pem from the worker to master controller"
-#      with_inventory_hostnames:
-#        - worker
-#    - name: "Fetch the file {{ item }}.csr from the worker to master controller"
-#      with_inventory_hostnames:
-#        - worker
-#    - name: "Fetch the file {{ item }}.pem from the worker to master controller"
-#      with_inventory_hostnames:
-#        - worker
-
-#    - name: "Testing web" 
-#      tags: sync-push
-#      synchronize:  
+#
+#
+#- hosts lb
+#  user: vagrant
+#  vars_files:
+#    - vars_files.yaml
+#  tasks:
+#    - name: copy the file from lb to worker using Method pull
+#      tags: sync-pull
+#      synchronize:
 #        src: "{{ directory_cert }}"
 #        dest: "{{ directory_cert }}"
-#        mode: push
-#      delegate_to: 192.168.56.31
-#      register: syncfile
+#        mode: pull
+#        rsync_opts:
+#          - "-e ssh -i ~/.ssh/id_rsa.pub"
+#      delegate_to: "{{ hostvars[item]['ansible_facts']['enp0s8']['ipv4']['address'] }}"
+#      run_once: true
+#      become: true
+#      become_user: vagrant
 #      with_inventory_hostnames:
 #        - worker
+#      register: output_syncpull
+#    - name: "Print name"
+#      debug: var=output_syncpull.stdout_lines
+
 #######################################
 ##                                    #
 ##          <=== ETCD ===>#           #
@@ -361,6 +396,8 @@
 #      debug: var=discovery_etcd.stdout_lines
 - hosts: etcd 
   become: true
+  vars_files:
+    - vars_files.yaml
   tasks:
     - name: "Accetp Traffic"
       shell: |
@@ -375,9 +412,11 @@
         sudo iptables -A OUTPUT -p tcp --sport 2380 -m coontrack --ctstate ESTABLISHED -j ACCEPT
         iptables -I INPUT -p tcp -s 0.0.0.0/0 --dport 2379 -j DROP
         iptables -I INPUT -p tcp -s 0.0.0.0/0 --dport 2380 -j DROP
+
+
     - name: copy encryption
       copy:
-        src: "{{ DIRECTORY_PEM }}{{ item }}"
+        src: "{{ directory_cert }}{{ item }}"
         dest: /etc/etcd/
       with_items:
         - admin.kubeconfig
@@ -388,72 +427,72 @@
         - kubernetes-key.pem
         - kubernetes.pem
         - encryption-config.yaml  
-    - name: "Create config file for etcd"
-      template:
-        src: fileconf/etcd.service.j2
-        dest: /etc/systemd/system/etcd.service
-    - name: encrypt
-      shell: |
-        sudo chown -R etcd:etcd /etc/etcd/
-        sudo chown -R etcd:etcd /var/lib/etcd/
-        sudo chmod -R 751 /etc/etcd/
-        sudo chmod -R 751 /var/lib/etcd/
-    - name: "Download etcd.tar.gz"
-      get_url:
-        url: https://github.com/etcd-io/etcd/releases/download/v3.5.3/etcd-v3.5.3-linux-amd64.tar.gz
-        dest: /tmp/etcd-v3.5.3-linux-amd64.tar.gz
-        owner: etcd
-        group: etcd
-        mode: 0751
-        force: True
-    - name: "Extract etcd.tar.gz"
-      shell: |
-        tar -zxvf /tmp/etcd-v3.5.3-linux-amd64.tar.gz -C /usr/local/bin/etcd/bin/ --strip-components=1
-        rm -rf /tmp/etcd-v3.5.3-linux-amd64*
-    - name: "set permission etcd"
-      file:
-        path: /usr/local/bin/etcd/bin/etcd 
-        state: file
-        owner: etcd
-        group: etcd
-        mode: 0751
-    - name: "set permission etcdctl"
-      file:
-        path: /usr/local/bin/etcd/bin/etcdctl 
-        state: file
-        owner: etcd
-        group: etcd
-        mode: 0751
-    - name: "Set ETCDCTL_API enviroment 3"
-      blockinfile:
-        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
-        path: /etc/profile
-        block: |
-          export ETCDCTL_API=3
-          export PATH="$PATH:/usr/local/bin/etcd/bin"
-          export ENDPOINTS={% for host in groups['etcd'] %}{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2379{% if not loop.last %},{% endif %}{% endfor %}
-        state: present
-        insertafter: EOF
-    - name: "Create config file for etcd"
-      template:
-        src: fileconf/etcd.conf.yaml.j2
-        dest: /etc/etcd/etcd.conf.yaml
-        owner: etcd
-        group: etcd
-        mode: 0751
-    - name: "Service etcd"
-      template:
-        src: fileconf/etcd.service.yaml.j2
-        dest: /etc/systemd/system/etcd.service
-        owner: etcd
-        group: etcd
-        mode: 0751
-    - name: "Start enable etcd"
-      shell: |
-        systemctl start etcd
-        systemctl enable etcd
-    - name: "save firewall"
-      shell: sudo netfilter-persistent save
+#    - name: "Create config file for etcd"
+#      template:
+#        src: fileconf/etcd.service.j2
+#        dest: /etc/systemd/system/etcd.service
+#    - name: encrypt
+#      shell: |
+#        sudo chown -R etcd:etcd /etc/etcd/
+#        sudo chown -R etcd:etcd /var/lib/etcd/
+#        sudo chmod -R 751 /etc/etcd/
+#        sudo chmod -R 751 /var/lib/etcd/
+#    - name: "Download etcd.tar.gz"
+#      get_url:
+#        url: https://github.com/etcd-io/etcd/releases/download/v3.5.3/etcd-v3.5.3-linux-amd64.tar.gz
+#        dest: /tmp/etcd-v3.5.3-linux-amd64.tar.gz
+#        owner: etcd
+#        group: etcd
+#        mode: 0751
+#        force: True
+#    - name: "Extract etcd.tar.gz"
+#      shell: |
+#        tar -zxvf /tmp/etcd-v3.5.3-linux-amd64.tar.gz -C /usr/local/bin/etcd/bin/ --strip-components=1
+#        rm -rf /tmp/etcd-v3.5.3-linux-amd64*
+#    - name: "set permission etcd"
+#      file:
+#        path: /usr/local/bin/etcd/bin/etcd 
+#        state: file
+#        owner: etcd
+#        group: etcd
+#        mode: 0751
+#    - name: "set permission etcdctl"
+#      file:
+#        path: /usr/local/bin/etcd/bin/etcdctl 
+#        state: file
+#        owner: etcd
+#        group: etcd
+#        mode: 0751
+#    - name: "Set ETCDCTL_API enviroment 3"
+#      blockinfile:
+#        marker: "#<!-- github.com/dczinil {mark} ansible block -->#"
+#        path: /etc/profile
+#        block: |
+#          export ETCDCTL_API=3
+#          export PATH="$PATH:/usr/local/bin/etcd/bin"
+#          export ENDPOINTS={% for host in groups['etcd'] %}{{ hostvars[host]['ansible_facts']['enp0s8']['ipv4']['address'] }}:2379{% if not loop.last %},{% endif %}{% endfor %}
+#        state: present
+#        insertafter: EOF
+#    - name: "Create config file for etcd"
+#      template:
+#        src: fileconf/etcd.conf.yaml.j2
+#        dest: /etc/etcd/etcd.conf.yaml
+#        owner: etcd
+#        group: etcd
+#        mode: 0751
+#    - name: "Service etcd"
+#      template:
+#        src: fileconf/etcd.service.yaml.j2
+#        dest: /etc/systemd/system/etcd.service
+#        owner: etcd
+#        group: etcd
+#        mode: 0751
+#    - name: "Start enable etcd"
+#      shell: |
+#        systemctl start etcd
+#        systemctl enable etcd
+#    - name: "save firewall"
+#      shell: sudo netfilter-persistent save
 #######################################
 ##                                    #
 ##          #<=== KACS ===>#          #
@@ -461,6 +500,8 @@
 #######################################
 - hosts: kacs 
   become: true
+  vars_files:
+    - vars_files.yaml
   tasks:
 
     - name: install kubectl kube-proxy kubelet
@@ -473,66 +514,65 @@
         - kube-controller-manager
         - kube-scheduler
         - kubectl
-
     - name: encryption
       copy:
         src: "{{item}}"
         dest: /var/lib/k8s/
       with_items:
-        - script/cert/ca.pem
-        - script/cert/ca-key.pem
-        - script/cert/kubernetes.pem
-        - script/cert/kubernetes-key.pem
-        - script/cert/service-account.pem
-        - script/cert/service-account-key.pem
-        - script/cert/encryption-config.yaml
-        - script/cert/admin.kubeconfig
-        - script/cert/kube-controller-manager.kubeconfig
-        - script/cert/kube-scheduler.kubeconfig
-    - name: encrypt
-      shell: |
-        sudo chown -R root:root /var/lib/k8s/*
-        sudo chmod -R 751 /var/lib/k8s/*
-
-    - name: "service kube-api"
-      template:
-        src: fileconf/kube-apiserver.service.yaml.j2
-        dest: /etc/systemd/system/kube-apiserver.service
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "service kube-controller-manager"
-      template:
-        src: fileconf/kube-controller-manager.service.yaml.j2
-        dest: /etc/systemd/system/kube-controller-manager.service
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "Configure kube-scheduler"
-      template:
-        src: fileconf/kube-scheduler.yaml.j2
-        dest: /etc/k8s/config/kube-scheduler.yaml
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "Service kube-scheduler"
-      template:
-        src: fileconf/kube-scheduler.service.yaml.j2
-        dest: /etc/systemd/system/kube-scheduler.service
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "Services"
-      shell: |
-        sudo systemctl daemon-reload
-        sudo systemctl enable kube-apiserver kube-controller-manager kube-scheduler
-        sudo systemctl start kube-apiserver kube-controller-manager kube-scheduler
-    - name: "save firewall"
-      shell: sudo netfilter-persistent save
+        - "{{ directory_cert }}ca.pem"
+        - "{{ directory_cert }}ca-key.pem"
+        - "{{ directory_cert }}kubernetes.pem"
+        - "{{ directory_cert }}kubernetes-key.pem"
+        - "{{ directory_cert }}service-account.pem"
+        - "{{ directory_cert }}service-account-key.pem"
+        - "{{ directory_cert }}encryption-config.yaml"
+        - "{{ directory_cert }}admin.kubeconfig"
+        - "{{ directory_cert }}kube-controller-manager.kubeconfig"
+        - "{{ directory_cert }}kube-scheduler.kubeconfig"
+#    - name: encrypt
+#      shell: |
+#        sudo chown -R root:root /var/lib/k8s/*
+#        sudo chmod -R 751 /var/lib/k8s/*
+#
+#    - name: "service kube-api"
+#      template:
+#        src: fileconf/kube-apiserver.service.yaml.j2
+#        dest: /etc/systemd/system/kube-apiserver.service
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "service kube-controller-manager"
+#      template:
+#        src: fileconf/kube-controller-manager.service.yaml.j2
+#        dest: /etc/systemd/system/kube-controller-manager.service
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "Configure kube-scheduler"
+#      template:
+#        src: fileconf/kube-scheduler.yaml.j2
+#        dest: /etc/k8s/config/kube-scheduler.yaml
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "Service kube-scheduler"
+#      template:
+#        src: fileconf/kube-scheduler.service.yaml.j2
+#        dest: /etc/systemd/system/kube-scheduler.service
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "Services"
+#      shell: |
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable kube-apiserver kube-controller-manager kube-scheduler
+#        sudo systemctl start kube-apiserver kube-controller-manager kube-scheduler
+#    - name: "save firewall"
+#      shell: sudo netfilter-persistent save
 #######################################
 ##                                    #
 ##          <=== WORKER ===>#         #
@@ -540,24 +580,26 @@
 #######################################
 - hosts: worker 
   become: true
+  vars_files:
+    - vars_files.yaml
   tasks:
-#    - name: "test synchronize"
-#      tags: sync-pull
-#      synchronize:
-#        src: "{{ directory_cert }}"
-#        dest: "{{ directory_cert }}"
-#        mode: pull
-#      delegate_to: "{{ hostvars[]['ansible_facts']['enp0s8']['ipv4']['address'] }}"
-#      register: syncfile
-#      run_once: true
-#      with_inventory_hostnames:
-#        - worker
-    - name: Make direcories
-      file:
-        path: "{{ item }}"
-        state: touch
-      with_items:
-        - /var/lib/kube-proxy/kubeconfig
+    - name: "test synchronize"
+      tags: sync-pull
+      synchronize:
+        src: "{{ directory_cert }}"
+        dest: "{{ directory_cert }}"
+        mode: pull
+      delegate_to: "{{ hostvars[]['ansible_facts']['enp0s8']['ipv4']['address'] }}"
+      register: syncfile
+      run_once: true
+      with_inventory_hostnames:
+        - worker
+#    - name: Make direcories
+#      file:
+#        path: "{{ item }}"
+#        state: touch
+#      with_items:
+#        - /var/lib/kube-proxy/kubeconfig
 
     - name: enable cri-repo
       environment:
@@ -569,154 +611,154 @@
         curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$VERSION/$OS/Release.key | apt-key add -
         curl -L   https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o/$OS/Release.key | apt-key add -
 
-    - name: Install a list of packages
-      apt:
-        state: present
-        update_cache: yes
-        pkg:
-        - cri-o
-        - cri-o-runc
-        - cri-tools
-
-    - name: install cni
-      unarchive:
-        src: https://github.com/containernetworking/plugins/releases/download/v1.2.0/cni-plugins-linux-amd64-v1.2.0.tgz
-        dest: /opt/cni/bin
-        remote_src: yes
-    - name: install kubectl kube-proxy kubelet
-      get_url:
-        url: "https://storage.googleapis.com/kubernetes-release/release/v1.26.0/bin/linux/amd64/{{ item }}"
-        dest: /usr/local/bin/
-        mode: 0750
-      with_items:
-        - kubelet
-        - kube-proxy
-        - kubectl
-
-    - name: copy encryption
-      copy:
-        src: "{{ item }}"
-        dest: /var/lib/kubelet/
-        owner: root 
-        group: root
-        mode: 0751
-      with_items:
-        - script/cert/{{ inventory_hostname }}-key.pem
-        - script/cert/{{ inventory_hostname }}.pem
-        - script/cert/{{ inventory_hostname }}-csr.json
-        - script/cert/{{ inventory_hostname }}.csr
-        - script/cert/{{ inventory_hostname }}.kubeconfig
-        - script/cert/kube-proxy.kubeconfig
-        - script/cert/ca.pem
-
-    - name: Remove swapfile from /etc/fstab
-      mount:
-        name: "{{ item }}"
-        fstype: swap
-        state: absent
-      with_items:
-        - swap
-        - none
-    - name: Disable swap
-      command: swapoff -a
-    - name: "Forwarding overlay VxLan"
-      template:
-        src: fileconf/crio_iptable.conf.yaml.j2
-        dest: /etc/modules-load.d/crio_iptable.conf
-        owner: root
-        group: root
-        mode: 0751
-    - name: enable overlayFS & VxLan
-      shell: |
-        sudo modprobe overlay
-        sudo modprobe br_netfilter
-    - name: "Add configuration"
-      template:
-        src: fileconf/cri.conf.yaml.j2
-        dest: /etc/sysctl.d/cri.conf
-        owner: root
-        group: root
-        mode: 0751
-    - name: Reload parameters
-      command: sudo sysctl --system
-
-    - name: "10-bridge.conflistAdd configuration"
-      template:
-        src: fileconf/10-bridge.conflist.yaml.j2
-        dest: /etc/cni/net.d/10-bridge.conflist
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "config loopback"
-      template:
-        src: fileconf/99-looback.conflist.yaml.j2
-        dest: /etc/cni/net.d/99-loopback.conflist
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "config crio"
-      template:
-        src: fileconf/crio.conf.yaml.j2
-        dest: /etc/crio/crio.conf
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: Var Hostname
-      command: uname -n
-      register: result
-    - name: "Create the kuelet-config.yaml"
-      template:
-        src: fileconf/kubelet-config.yaml.j2
-        dest: /var/lib/kubelet/kubelet-config.yaml
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "Create the kubelet.service"
-      template:
-        src: fileconf/kubelet.service.yaml.j2
-        dest: /etc/systemd/system/kubelet.service
-        owner: root
-        group: root
-        mode: 0751
-
-    - name: "Configure the K8s Proxy"
-      template:
-        src: fileconf/kube-proxy-config.yaml.j2
-        dest: /var/lib/kube-proxy/kube-proxy-config.yaml
-        owner: root 
-        group: root
-        mode: 0751
-
-    - name: "The kube-proxy.service"
-      template:
-        src: fileconf/kube-proxy.service.yaml.j2
-        dest: /etc/systemd/system/kube-proxy.service
-        owner: root 
-        group: root
-        mode: 0751
-
-    - name: "The service crio"
-      template: 
-        src: fileconf/crio.service.yaml.j2
-        dest: /lib/systemd/system/crio.service
-        owner: root 
-        group: root
-        mode: 0751
-
-    - name: start crio kubelet kube-proxy
-      systemd:
-        name: "{{ item }}"
-        masked: no
-        state: started
-        enabled: yes
-      with_items:
-        - crio
-        - kubelet
-        - kube-proxy
-    - name: "save firewall"
-      shell: sudo netfilter-persistent save
+#    - name: Install a list of packages
+#      apt:
+#        state: present
+#        update_cache: yes
+#        pkg:
+#        - cri-o
+#        - cri-o-runc
+#        - cri-tools
+#
+#    - name: install cni
+#      unarchive:
+#        src: https://github.com/containernetworking/plugins/releases/download/v1.2.0/cni-plugins-linux-amd64-v1.2.0.tgz
+#        dest: /opt/cni/bin
+#        remote_src: yes
+#    - name: install kubectl kube-proxy kubelet
+#      get_url:
+#        url: "https://storage.googleapis.com/kubernetes-release/release/v1.26.0/bin/linux/amd64/{{ item }}"
+#        dest: /usr/local/bin/
+#        mode: 0750
+#      with_items:
+#        - kubelet
+#        - kube-proxy
+#        - kubectl
+#
+#    - name: copy encryption
+#      copy:
+#        src: "{{ item }}"
+#        dest: /var/lib/kubelet/
+#        owner: root 
+#        group: root
+#        mode: 0751
+#      with_items:
+#        - script/cert/{{ inventory_hostname }}-key.pem
+#        - script/cert/{{ inventory_hostname }}.pem
+#        - script/cert/{{ inventory_hostname }}-csr.json
+#        - script/cert/{{ inventory_hostname }}.csr
+#        - script/cert/{{ inventory_hostname }}.kubeconfig
+#        - script/cert/kube-proxy.kubeconfig
+#        - script/cert/ca.pem
+#
+#    - name: Remove swapfile from /etc/fstab
+#      mount:
+#        name: "{{ item }}"
+#        fstype: swap
+#        state: absent
+#      with_items:
+#        - swap
+#        - none
+#    - name: Disable swap
+#      command: swapoff -a
+#    - name: "Forwarding overlay VxLan"
+#      template:
+#        src: fileconf/crio_iptable.conf.yaml.j2
+#        dest: /etc/modules-load.d/crio_iptable.conf
+#        owner: root
+#        group: root
+#        mode: 0751
+#    - name: enable overlayFS & VxLan
+#      shell: |
+#        sudo modprobe overlay
+#        sudo modprobe br_netfilter
+#    - name: "Add configuration"
+#      template:
+#        src: fileconf/cri.conf.yaml.j2
+#        dest: /etc/sysctl.d/cri.conf
+#        owner: root
+#        group: root
+#        mode: 0751
+#    - name: Reload parameters
+#      command: sudo sysctl --system
+#
+#    - name: "10-bridge.conflistAdd configuration"
+#      template:
+#        src: fileconf/10-bridge.conflist.yaml.j2
+#        dest: /etc/cni/net.d/10-bridge.conflist
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "config loopback"
+#      template:
+#        src: fileconf/99-looback.conflist.yaml.j2
+#        dest: /etc/cni/net.d/99-loopback.conflist
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "config crio"
+#      template:
+#        src: fileconf/crio.conf.yaml.j2
+#        dest: /etc/crio/crio.conf
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: Var Hostname
+#      command: uname -n
+#      register: result
+#    - name: "Create the kuelet-config.yaml"
+#      template:
+#        src: fileconf/kubelet-config.yaml.j2
+#        dest: /var/lib/kubelet/kubelet-config.yaml
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "Create the kubelet.service"
+#      template:
+#        src: fileconf/kubelet.service.yaml.j2
+#        dest: /etc/systemd/system/kubelet.service
+#        owner: root
+#        group: root
+#        mode: 0751
+#
+#    - name: "Configure the K8s Proxy"
+#      template:
+#        src: fileconf/kube-proxy-config.yaml.j2
+#        dest: /var/lib/kube-proxy/kube-proxy-config.yaml
+#        owner: root 
+#        group: root
+#        mode: 0751
+#
+#    - name: "The kube-proxy.service"
+#      template:
+#        src: fileconf/kube-proxy.service.yaml.j2
+#        dest: /etc/systemd/system/kube-proxy.service
+#        owner: root 
+#        group: root
+#        mode: 0751
+#
+#    - name: "The service crio"
+#      template: 
+#        src: fileconf/crio.service.yaml.j2
+#        dest: /lib/systemd/system/crio.service
+#        owner: root 
+#        group: root
+#        mode: 0751
+#
+#    - name: start crio kubelet kube-proxy
+#      systemd:
+#        name: "{{ item }}"
+#        masked: no
+#        state: started
+#        enabled: yes
+#      with_items:
+#        - crio
+#        - kubelet
+#        - kube-proxy
+#    - name: "save firewall"
+#      shell: sudo netfilter-persistent save
 ...

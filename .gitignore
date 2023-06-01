@@ -1,3 +1,6 @@
 .vagrant
-ansible/script/cert/*
-ansible/id_rsa*
+ansible/script/cert/
+ansible/cert
+nmap.out
+ansible/k8s_key*
+scrap/*

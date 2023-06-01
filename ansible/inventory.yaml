@@ -1,0 +1,40 @@
+all:
+  hosts:
+    etcd:
+    kacs:
+    worker:
+    lb:
+  vars:
+    ansible_user: vagrant
+    ansible_connection: ssh
+    ansible_ssh_private_key_file: ../../.vagrant.d/insecure_private_key
+kacs:
+  hosts:
+      K8SKACS21:
+        ansible_host: 192.168.56.21
+      K8SKACS22:
+        ansible_host: 192.168.56.22
+  vars:
+    ansible_user: vagrant
+    ansible_connection: ssh
+    ansible_ssh_private_key_file: ../../.vagrant.d/insecure_private_key
+worker:
+  hosts:
+      K8SWORKER31:
+        ansible_host: 192.168.56.31
+      K8SWORKER32:
+        ansible_host: 192.168.56.32
+      K8SWORKER33:
+        ansible_host: 192.168.56.33
+  vars:
+    ansible_user: vagrant
+    ansible_connection: ssh
+    ansible_ssh_private_key_file: ../../.vagrant.d/insecure_private_key
+lb:
+  hosts:
+      K8SLB61:
+        ansible_host: 192.168.56.61
+  vars:
+    ansible_user: vagrant
+    ansible_connection: ssh
+    ansible_ssh_private_key_file: ../../.vagrant.d/insecure_private_key
